@@ -79,7 +79,7 @@ export default function DragonTigerGame() {
     try {
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      const gameResult = await api.playDragonTiger(amount, bet);
+      const gameResult: any = await api.playDragonTiger(amount, bet);
       setIsDealing(false);
       setResult(gameResult);
       

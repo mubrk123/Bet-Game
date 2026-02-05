@@ -300,22 +300,6 @@ function buildScoreDetailsFromInnings(innings: any): string | null {
   return lines.length ? lines.join(" | ") : null;
 }
 
-function buildScoreDetailsFromLive(live: any): string | null {
-  if (!live || !live.score) return null;
-  const s = live.score;
-  const runs = s.runs ?? s.team_runs ?? s.score;
-  const wk = s.wickets ?? s.wickets_fallen;
-  const ov =
-    Array.isArray(s.overs) && s.overs.length >= 2
-      ? `${s.overs[0]}.${s.overs[1]}`
-      : s.overs ??
-        (Number.isFinite(s.balls) ? `${Math.floor(s.balls / 6)}.${s.balls % 6}` : null);
-  if (runs == null) return null;
-  const wkPart = wk != null ? `/${wk}` : "";
-  const ovPart = ov != null ? ` (${ov})` : "";
-  return `${runs}${wkPart}${ovPart}`;
-}
-
 export const wsClient = new SupabaseRealtimeClient();
 
 export function useWebSocket() {

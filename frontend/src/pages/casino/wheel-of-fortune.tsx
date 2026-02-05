@@ -49,7 +49,7 @@ export default function WheelOfFortuneGame() {
     setResult(null);
 
     try {
-      const gameResult = await api.playWheelOfFortune(amount);
+      const gameResult: any = await api.playWheelOfFortune(amount);
       
       // Calculate rotation to land on winning segment
       const segmentAngle = 360 / SEGMENTS.length;

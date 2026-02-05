@@ -118,6 +118,19 @@ export interface ApiBet {
   selectionName?: string;
 }
 
+// Casino results (lightweight stubs for UI)
+export interface SlotsResult {
+  win: number;
+  balance?: number;
+  result?: any;
+  payout?: number;
+  newBalance?: number;
+  roundId?: string;
+  serverSeedHash?: string;
+  clientSeed?: string;
+  nonce?: number;
+}
+
 export interface WalletTransaction {
   id: string;
   user_id: string;
@@ -936,6 +949,25 @@ async getUserBets(): Promise<{ bets: ApiBet[] }> {
 
   async rejectDepositRequest(requestId: string, notes?: string) {
     return this.invokeFunction("admin-reject-deposit", { requestId, notes });
+  }
+
+  // ==========================================================================
+  // CASINO (stubs to satisfy UI; backed by casino-play edge function)
+  // ==========================================================================
+  async playDragonTiger(amount: number, bet: string): Promise<any> {
+    return this.invokeFunction<any>("casino-play", { game: "dragon-tiger", amount, bet });
+  }
+
+  async playLucky7(amount: number, bet: string): Promise<any> {
+    return this.invokeFunction<any>("casino-play", { game: "lucky-7", amount, bet });
+  }
+
+  async playSlots(amount: number): Promise<SlotsResult> {
+    return this.invokeFunction<SlotsResult>("casino-play", { game: "slots", amount });
+  }
+
+  async playWheelOfFortune(amount: number): Promise<any> {
+    return this.invokeFunction<any>("casino-play", { game: "wheel-of-fortune", amount });
   }
 }
 

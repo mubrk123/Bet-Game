@@ -232,11 +232,7 @@ export function MobileHeader() {
                       const status = String(bet?.status || "").toUpperCase();
                       const pnl = formatPnl(bet);
                       const isWin = status === "WON";
-                      const matchName =
-                        bet?.matchName ||
-                        bet?.match?.name ||
-                        bet?.marketName ||
-                        "Bet";
+                      const matchName = bet?.matchName || bet?.marketName || "Bet";
                       const timeText = bet?.settledAt || bet?.createdAt;
 
                       return (
@@ -250,7 +246,7 @@ export function MobileHeader() {
                                 {matchName}
                               </div>
                               <div className="text-sm font-semibold truncate text-white">
-                                {bet?.selectionName || bet?.runnerName || "Selection"}
+                                {bet?.selectionName || bet?.runner_name || "Selection"}
                               </div>
                               {timeText ? (
                                 <div className="text-[11px] text-muted-foreground/80">

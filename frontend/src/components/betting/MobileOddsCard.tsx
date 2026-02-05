@@ -387,7 +387,7 @@ export function MobileOddsCard({
                   variant="outline"
                   className="text-[9px] border-white/20 bg-black/30 text-white/80"
                 >
-                  {getTimeRemaining(market.closeTime)}
+                  {getTimeRemaining(market.closeTime || "")}
                 </Badge>
               </div>
 

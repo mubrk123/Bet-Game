@@ -287,15 +287,6 @@ function formatOversCompact(over?: number, ball0to5?: number) {
   return `${over}.${b}`;
 }
 
-function maxOversForMatchType(matchType?: string | null) {
-  const mt = (matchType || "").toLowerCase();
-  if (mt.includes("t10")) return 10;
-  if (mt.includes("t20") || mt.includes("ipl") || mt.includes("sa20") || mt.includes("psl") || mt.includes("bbl") || mt.includes("cpl")) return 20;
-  if (mt.includes("odi") || mt.includes("50")) return 50;
-  if (mt.includes("test")) return Infinity;
-  return Infinity;
-}
-
 function scoreStringHasValue(score?: string | null) {
   if (!score) return false;
   return /\d/.test(String(score));
@@ -431,7 +422,8 @@ function outcomeFromBallEvent(ev: BallEventRow) {
   return String(total);
 }
 
-function ballResultToEvent(b: BallResult, inning: number): BallEventRow {
+// Exported to avoid noUnusedLocals while keeping the helper around
+export function ballResultToEvent(b: BallResult, inning: number): BallEventRow {
   const total = toNum(b.totalRuns, b.runsScored + toNum(b.extras));
   const isBoundary = b.isBoundary || total === 4;
   const isSix = b.isSix || total === 6;
@@ -462,7 +454,7 @@ function isPlaceholderBall(over: number, ball: number, totalRuns: number, isWick
   return over === 0 && ball === 0 && totalRuns === 0 && !isWicket;
 }
 
-function outcomeFromBallResult(b: BallResult) {
+export function outcomeFromBallResult(b: BallResult) {
   const normalizedExtra = normalizeExtraTypeShort(b.outcome);
   if (normalizedExtra) return normalizedExtra;
   if (b.outcome) {
@@ -628,7 +620,6 @@ function parseRequired(details: string | null | undefined): { runs: number; ball
 function CompactMarketGrid({
   market,
   title,
-  nowTs,
   onPick,
   selectedOutcomeId,
   timeRemaining,
@@ -636,7 +627,6 @@ function CompactMarketGrid({
 }: {
   market: InstanceMarket;
   title?: string | null;
-  nowTs: number;
   onPick: (m: InstanceMarket, o: InstanceOutcome) => void;
   selectedOutcomeId?: string | null;
   timeRemaining: (closeTime?: string | null) => string;
@@ -786,7 +776,6 @@ function PreMatchBetSheet({
   if (!open || !runner) return null;
 
   const hasLay = Number.isFinite(runner.layOdds) && (runner.layOdds ?? 0) > 1.01;
-  const activeOdds = runner.type === "BACK" ? runner.backOdds : runner.layOdds ?? runner.backOdds;
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
@@ -1379,11 +1368,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
   const authoritativeBall0to5ForText =
     inningScoreFromDb?.ball0to5 ?? (lastBall ? Math.max(0, toNum(lastBall.ball, 1) - 1) : 0);
 
-  const currentOversNumeric = useMemo(
-    () => toNum(authoritativeOverForText, 0) + toNum(authoritativeBall0to5ForText, 0) / 6,
-    [authoritativeOverForText, authoritativeBall0to5ForText]
-  );
-
   const overFromDb = inningScoreFromDb ? formatOversCompact(authoritativeOverForText, authoritativeBall0to5ForText) : null;
 
   const overText =
@@ -1399,16 +1383,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     "—";
 
   const required = parseRequired(displayDetails);
-  const maxOvers = maxOversForMatchType((match as any)?.matchType);
-  const inningsComplete = Number.isFinite(maxOvers) && inningScoreFromDb && toNum(inningScoreFromDb.over, 0) >= (maxOvers as number);
-  const wicketsComplete = inningScoreFromDb && toNum(inningScoreFromDb.wkts, 0) >= 10;
-  const isInningsBreak = isLive && activeInning === 1 && (inningsComplete || wicketsComplete);
-  const matchFinished = match?.status === "FINISHED";
-
-  const showTossLine = useMemo(
-    () => Boolean(tossLine) && activeInning === 1 && currentOversNumeric < 4,
-    [tossLine, activeInning, currentOversNumeric]
-  );
 
   const currentOverEvents = useMemo(() => {
     const overNum = Math.floor(toNum(authoritativeOverForText, 0));
@@ -1441,7 +1415,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
   }, [currentOverEvents]);
 
   const pulseResults = useMemo(() => {
-    const overNum = Math.floor(toNum(authoritativeOverForText, 0));
     const list =
       pulseOverEvents.map((e) => ({
         label: outcomeFromBallEvent(e),
@@ -1860,15 +1833,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
   const nonStrikerRuns = derived.nonStriker.runs;
   const nonStrikerBalls = derived.nonStriker.balls;
 
-  const startLabel = useMemo(() => {
-    const status = match?.status || "UPCOMING";
-    if (status === "LIVE") return "Live";
-    if (countdown) {
-      if (countdown.toLowerCase().includes("starting")) return "Starting soon";
-      return `Starts in ${countdown}`;
-    }
-    return "Scheduled";
-  }, [match?.status, countdown]);
   const startSubLabel = match?.startTime ? formatMatchTime(match.startTime) : "";
 
   if (!match && isLoadingMatch) {
@@ -2274,7 +2238,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
                   <CompactMarketGrid
                     market={livePlayMarkets.nextBall}
                     title={nextBallLabel(livePlayMarkets.nextBall)}
-                    nowTs={nowTs}
                     onPick={onPickOutcome}
                     selectedOutcomeId={
                       selectedMarket?.id === livePlayMarkets.nextBall.id ? selectedOutcome?.id : null
@@ -2294,7 +2257,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
                       key={m.id}
                       market={m}
                       title={nextOverLabel(m)}
-                      nowTs={nowTs}
                       onPick={onPickOutcome}
                       selectedOutcomeId={selectedMarket?.id === m.id ? selectedOutcome?.id : null}
                       timeRemaining={timeRemaining}
@@ -2307,7 +2269,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
                   <CompactMarketGrid
                     market={livePlayMarkets.nextWicket}
                     title={(livePlayMarkets.nextWicket as any).market_title || "Next wicket dismissal"}
-                    nowTs={nowTs}
                     onPick={onPickOutcome}
                     selectedOutcomeId={
                       selectedMarket?.id === livePlayMarkets.nextWicket.id ? selectedOutcome?.id : null
@@ -2331,7 +2292,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
                     key={m.id}
                     market={m}
                     title={(m as any).market_title || (m as any).name || "Session market"}
-                    nowTs={nowTs}
                     onPick={onPickOutcome}
                     selectedOutcomeId={selectedMarket?.id === m.id ? selectedOutcome?.id : null}
                     timeRemaining={timeRemaining}

@@ -178,12 +178,6 @@ export default function Dashboard() {
     );
   }
 
-  function extractOverFromDetails(details?: string | null): string | null {
-    if (!details) return null;
-    const m = details.match(/(\d+(?:\.\d+)?)\s*ov/i);
-    return m?.[1] ?? null;
-  }
-
   function escapeRegex(str: string) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
@@ -217,24 +211,6 @@ export default function Dashboard() {
     return null;
   }
 
-  function looksLikeStartedScore(score?: string | null): boolean {
-    if (!score) return false;
-    const s = score.trim();
-    if (!s) return false;
-
-    if (/^\d+\s*\/\s*\d+/.test(s)) {
-      const runs = parseInt(s.split("/")[0] || "0", 10);
-      return Number.isFinite(runs) && runs > 0;
-    }
-
-    if (/^\d+(\s*-\s*\d+)?$/.test(s)) {
-      const runs = parseInt(s, 10);
-      return Number.isFinite(runs) && runs > 0;
-    }
-
-    return false;
-  }
-
   function getTossLine(match: any): string | null {
     const direct =
       match?.tossInfo ||
@@ -265,57 +241,6 @@ export default function Dashboard() {
       const pretty =
         d.includes("bat") ? "bat" : d.includes("bowl") ? "bowl" : String(decision);
       return `Toss: ${winner} won & elected to ${pretty}`;
-    }
-
-    return null;
-  }
-
-  function ballsToOversText(balls: number) {
-    const ov = Math.floor(balls / 6);
-    const b = balls % 6;
-    return `${ov}.${b}`;
-  }
-
-  function getChaseLine(match: any): string | null {
-    const direct =
-      match?.chaseInfo ||
-      match?.chase_info ||
-      match?.required_text ||
-      match?.target_text ||
-      null;
-
-    if (typeof direct === "string" && direct.trim()) return direct.trim();
-
-    const details: string = (match?.scoreDetails || "").toString();
-    if (!details) return null;
-
-    let m = details.match(/need\s+(\d+)\s+runs?\s+in\s+(\d+)\s+balls?/i);
-    if (m) {
-      const runs = parseInt(m[1], 10);
-      const balls = parseInt(m[2], 10);
-      if (Number.isFinite(runs) && Number.isFinite(balls)) {
-        return `Need ${runs} runs in ${ballsToOversText(balls)} overs`;
-      }
-    }
-
-    m = details.match(
-      /(requires|require)\s+(\d+)\s+(runs?)?\s*(from|in)\s+(\d+)\s+balls?/i
-    );
-    if (m) {
-      const runs = parseInt(m[2], 10);
-      const balls = parseInt(m[5], 10);
-      if (Number.isFinite(runs) && Number.isFinite(balls)) {
-        return `Need ${runs} runs in ${ballsToOversText(balls)} overs`;
-      }
-    }
-
-    m = details.match(/need\s+(\d+)\s+runs?\s+in\s+(\d+(?:\.\d+)?)\s*overs?/i);
-    if (m) {
-      const runs = parseInt(m[1], 10);
-      const ov = m[2];
-      if (Number.isFinite(runs) && ov) {
-        return `Need ${runs} runs in ${ov} overs`;
-      }
     }
 
     return null;
@@ -456,15 +381,6 @@ export default function Dashboard() {
     setSelectedBet({ match, runner, type, odds });
   };
 
-  const liveCount = matches.filter(
-    (m) => (m.status || "").toUpperCase() === "LIVE"
-  ).length;
-  const upcomingCount = matches.filter(
-    (m) =>
-      (m.status || "").toUpperCase() !== "LIVE" &&
-      (m.status || "").toUpperCase() !== "FINISHED"
-  ).length;
-
   const openMatch = (id: string) => setLocation(`/match/${id}`);
 
   return (
@@ -549,11 +465,6 @@ export default function Dashboard() {
                 const status = (match.status || "").toUpperCase();
                 const isLive = status === "LIVE";
                 const isUpcoming = status !== "LIVE";
-
-                const overText =
-                  typeof match.currentOver === "number"
-                    ? `${match.currentOver}.${match.currentBall ?? 0}`
-                    : extractOverFromDetails(match.scoreDetails);
 
                 // Determine batting side
                 const battingSide = isLive ? resolveBattingSide(match) : null;

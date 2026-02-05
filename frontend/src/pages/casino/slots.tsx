@@ -367,14 +367,17 @@ export default function SlotsGame() {
       }
 
       setTimeout(async () => {
-        setRound(data);
-        setHistory((prev) => [data, ...prev].slice(0, 6));
+        const payout = Number(data.payout ?? 0);
+        const newBalance = Number(data.newBalance ?? currentUser?.balance ?? 0);
+
+        setRound({ ...data, payout, newBalance });
+        setHistory((prev) => [{ ...data, payout, newBalance }, ...prev].slice(0, 6));
         setIsSpinning(false);
         setSpotlightCol(null);
 
         setLastResult({
           isWin: data.result.isWin,
-          payout: data.payout,
+          payout,
           multiplier: data.result.multiplier,
         });
 
@@ -387,7 +390,7 @@ export default function SlotsGame() {
         }
 
         if (data.result.isWin) {
-          setLastWin({ amount: data.payout, multiplier: data.result.multiplier });
+          setLastWin({ amount: payout, multiplier: data.result.multiplier });
 
           const strength = clamp(data.result.multiplier, 1, 20);
           audio.shimmer(strength).catch(() => {});
@@ -399,7 +402,7 @@ export default function SlotsGame() {
 
           toast({
             title: `You Won! ✨`,
-            description: `₹${data.payout.toFixed(2)} (${data.result.multiplier}x)`,
+            description: `₹${payout.toFixed(2)} (${data.result.multiplier}x)`,
             className: "bg-emerald-600 text-white border-none",
           });
         } else {
@@ -416,7 +419,7 @@ export default function SlotsGame() {
 
         setCurrentUser({
           ...currentUser!,
-          balance: data.newBalance,
+          balance: newBalance,
         });
 
         queryClient.invalidateQueries({ queryKey: ["casino-history"] });
@@ -774,7 +777,7 @@ export default function SlotsGame() {
                         </div>
                         <div className="text-right">
                           <span className="text-xs text-muted-foreground">Payout</span>
-                          <div className="font-medium">₹{item.payout.toFixed(2)}</div>
+                          <div className="font-medium">₹{Number(item.payout ?? 0).toFixed(2)}</div>
                         </div>
                       </div>
                     ))}
