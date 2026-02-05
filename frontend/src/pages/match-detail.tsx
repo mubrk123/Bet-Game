@@ -1407,11 +1407,6 @@ export default function MatchDetail() {
     return "";
   }, [match, activeInning, liveScore?.battingTeam, realtimeData?.battingTeam]);
 
-  const isHomeBatting = useMemo(() => {
-    if (!battingTeamResolved || !match?.homeTeam) return false;
-    return strictTeamEquals(battingTeamResolved, match.homeTeam) || fuzzyTeamMatch(battingTeamResolved, match.homeTeam);
-  }, [battingTeamResolved, match?.homeTeam]);
-
   useEffect(() => {
     const subId = dbMatchId || params?.id;
     if (!subId) return;

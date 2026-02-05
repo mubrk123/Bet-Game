@@ -87,19 +87,6 @@ export default function Dashboard() {
     });
   }
 
-  function formatTimeToStart(dateStr: string | null | undefined) {
-    if (!dateStr) return "";
-    const start = new Date(dateStr).getTime();
-    if (Number.isNaN(start)) return "";
-    const diffMs = start - Date.now();
-    const diffMin = Math.round(diffMs / 60000);
-    if (diffMin <= 0) return "Starting now";
-    if (diffMin < 60) return `${diffMin}m`;
-    const hours = Math.floor(diffMin / 60);
-    const minutes = diffMin % 60;
-    return `${hours}h ${minutes}m`;
-  }
-
   function formatCountdownExact(dateStr: string | null | undefined) {
     if (!dateStr) return "";
     const start = new Date(dateStr).getTime();
@@ -120,11 +107,6 @@ export default function Dashboard() {
     const initials = parts.map((p) => p[0] || "").join("");
     return initials.slice(0, 3).toUpperCase();
   }
-
-  const dicebearFor = (name: string) =>
-    `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
-      name || "team"
-    )}&backgroundColor=2563eb&fontWeight=700`;
 
   function TeamBadge({
     name,
@@ -213,41 +195,6 @@ export default function Dashboard() {
     return null;
   }
 
-  function getTossLine(match: any): string | null {
-    const direct =
-      match?.tossInfo ||
-      match?.toss_info ||
-      match?.toss ||
-      match?.toss_text ||
-      null;
-
-    if (typeof direct === "string" && direct.trim()) return direct.trim();
-
-    const winner =
-      match?.tossWinnerTeam ||
-      match?.toss_winner_team ||
-      match?.tossWinner ||
-      match?.toss_winner ||
-      match?.tossWinnerName ||
-      null;
-
-    const decision =
-      match?.tossDecision ||
-      match?.toss_decision ||
-      match?.tossElected ||
-      match?.toss_elected ||
-      null;
-
-    if (winner && decision) {
-      const d = String(decision).toLowerCase();
-      const pretty =
-        d.includes("bat") ? "bat" : d.includes("bowl") ? "bowl" : String(decision);
-      return `Toss: ${winner} won & elected to ${pretty}`;
-    }
-
-    return null;
-  }
-
   function resolveBattingSide(match: any): "home" | "away" | null {
     if (!match) return null;
     if (match.battingTeamKey && match.homeTeamKey && match.battingTeamKey === match.homeTeamKey) return "home";
@@ -256,13 +203,6 @@ export default function Dashboard() {
     if (parseTeamScore(details, match.homeTeam)) return "home";
     if (parseTeamScore(details, match.awayTeam)) return "away";
     return null;
-  }
-
-  function isSecondInnings(match: any) {
-    const d = (match?.scoreDetails || "").toString();
-    if (/(need|requires|require|target)/i.test(d)) return true;
-
-    return false;
   }
 
   useEffect(() => {
@@ -461,13 +401,8 @@ export default function Dashboard() {
                   {matches.map((match) => {
                     const status = (match.status || "").toUpperCase();
                     const isLive = status === "LIVE";
-                    const isUpcoming = status !== "LIVE";
 
                     const battingSide = isLive ? resolveBattingSide(match) : null;
-                    const secondInnings = isLive
-                      ? (match.currentInning ?? 1) >= 2 || isSecondInnings(match)
-                      : false;
-                    const tossLine = getTossLine(match);
 
                     const parsedHome = parseTeamScore(match.scoreDetails, match.homeTeam);
                     const parsedAway = parseTeamScore(match.scoreDetails, match.awayTeam);
