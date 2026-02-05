@@ -226,9 +226,8 @@ export function MobileOddsCard({
       onClick={handleOpenMatch}
       onKeyDown={(e) => e.key === "Enter" && handleOpenMatch()}
       className={cn(
-        "rounded-2xl p-3 border border-white/10 bg-white/[0.035] backdrop-blur-xl text-white",
-        "shadow-[0_16px_50px_rgba(0,0,0,0.55)] space-y-2.5 cursor-pointer",
-        "hover:border-white/20 transition-colors"
+        "rounded-2xl p-3 border border-[#E5E0D6] bg-[#FDFBF6] text-[#1F2733]",
+        "shadow-sm space-y-2.5 cursor-pointer hover:shadow-md transition"
       )}
       data-testid={`mobile-odds-${match.id}`}
     >
@@ -237,17 +236,17 @@ export function MobileOddsCard({
         <>
           {/* Teams */}
           <div className="flex items-center justify-between mt-1">
-            <span className="font-medium text-[13px] text-white max-w-[45%] truncate">
+            <span className="font-medium text-[13px] text-[#1A202C] max-w-[45%] truncate">
               {match.homeTeam}
             </span>
-            <span className="font-medium text-[13px] text-white max-w-[45%] text-right truncate">
+            <span className="font-medium text-[13px] text-[#1A202C] max-w-[45%] text-right truncate">
               {match.awayTeam}
             </span>
           </div>
 
           {/* Score */}
           {displayScore && (
-            <div className="flex items-center justify-between text-base font-mono tabular-nums font-bold text-emerald-300">
+            <div className="flex items-center justify-between text-base font-mono tabular-nums font-bold text-[#1A202C]">
               <span>{displayScore.home}</span>
               <span>{displayScore.away}</span>
             </div>
@@ -255,14 +254,14 @@ export function MobileOddsCard({
 
           {/* Over */}
           {currentOver && isLive && (
-            <div className="text-[10px] text-emerald-200 flex items-center gap-1">
+            <div className="text-[10px] text-[#059669] flex items-center gap-1">
               <Flame className="h-3 w-3" /> {currentOver}
             </div>
           )}
 
           {/* Details */}
           {displayScore?.details && (
-            <p className="text-[11px] text-slate-50/90 bg-white/[0.03] rounded-lg px-2.5 py-1.5 border border-white/10">
+            <p className="text-[11px] text-[#718096] bg-[#F7FAFC] rounded-lg px-2.5 py-1.5 border border-[#E2E8F0]">
               {displayScore.details}
             </p>
           )}
@@ -270,14 +269,14 @@ export function MobileOddsCard({
       )}
 
       {tossLine && (
-        <div className="flex items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-100">
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-300 animate-pulse" />
+        <div className="flex items-center gap-2 rounded-xl border border-[#F6E05E] bg-[#FFF9DB] px-2 py-1.5 text-[11px] text-[#B7791F]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[#B7791F] animate-pulse" />
           <span className="truncate">{tossLine}</span>
         </div>
       )}
 
       {marketSuspended && (
-        <div className="mt-1 text-[10px] text-amber-300">
+        <div className="mt-1 text-[10px] text-[#B7791F]">
           Market temporarily suspended
         </div>
       )}
@@ -289,14 +288,15 @@ export function MobileOddsCard({
             const showLabel = shouldShowRunnerLabel(runner.name, match);
             const back = Number.isFinite(runner.backOdds) ? Number(runner.backOdds) : null;
             const lay = Number.isFinite(runner.layOdds) ? Number(runner.layOdds) : null;
+            const liquidity = Number.isFinite(runner.volume) ? runner.volume : null;
             return (
               <div
                 key={runner.id}
-                className="p-2.5 rounded-xl border border-white/10 bg-white/[0.03]"
+                className="p-2.5 rounded-xl border border-[#E2E8F0] bg-white"
                 onClick={(e) => e.stopPropagation()}
               >
                 {showLabel && (
-                  <div className="text-xs font-medium mb-1.5 text-white truncate">
+                  <div className="text-xs font-medium mb-1.5 text-[#1A202C] truncate">
                     {runner.name}
                   </div>
                 )}
@@ -305,7 +305,7 @@ export function MobileOddsCard({
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-col h-10 rounded-xl bg-sky-500/15 border-sky-300/25 text-white transition active:scale-[0.99] hover:bg-sky-500/20 hover:border-sky-200/40"
+                    className="flex-col h-12 rounded-xl bg-[#ECFDF5] border-[#BBF7D0] text-[#059669] transition active:scale-[0.99] hover:bg-[#DDF7EB]"
                     onClick={(e) => {
                       e.stopPropagation();
                       if (back !== null) onBetSelect(match, runner, "BACK", back);
@@ -317,16 +317,18 @@ export function MobileOddsCard({
                         "font-mono tabular-nums font-semibold text-[17px] leading-none",
                         oddsFlash && "animate-pulse"
                       )}
-                    >
-                      {back !== null ? back.toFixed(2) : "—"}
-                    </span>
-                    <span className="text-[9px] mt-0.5">Back</span>
-                  </Button>
+                      >
+                        {back !== null ? back.toFixed(2) : "—"}
+                      </span>
+                      <span className="text-[10px] mt-0.5 text-[#718096]">
+                        Back{liquidity ? ` · ${Math.round(liquidity / 1000)}k` : ""}
+                      </span>
+                    </Button>
 
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-col h-10 rounded-xl bg-rose-500/15 border-rose-300/25 text-white transition active:scale-[0.99] hover:bg-rose-500/20 hover:border-rose-200/40"
+                    className="flex-col h-12 rounded-xl bg-[#FFF1F2] border-[#FECDD3] text-[#E11D48] transition active:scale-[0.99] hover:bg-[#FFE4E8]"
                     onClick={(e) => {
                       e.stopPropagation();
                       if (lay !== null) onBetSelect(match, runner, "LAY", lay);
@@ -338,18 +340,20 @@ export function MobileOddsCard({
                         "font-mono tabular-nums font-semibold text-[17px] leading-none",
                         oddsFlash && "animate-pulse"
                       )}
-                    >
-                      {lay !== null ? lay.toFixed(2) : "—"}
-                    </span>
-                    <span className="text-[9px] mt-0.5">Lay</span>
-                  </Button>
+                      >
+                        {lay !== null ? lay.toFixed(2) : "—"}
+                      </span>
+                      <span className="text-[10px] mt-0.5 text-[#718096]">
+                        Lay{liquidity ? ` · ${Math.round(liquidity / 1000)}k` : ""}
+                      </span>
+                    </Button>
                 </div>
               </div>
             );
           })}
         </div>
       ) : (
-        <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-3 text-center text-[12px] text-white/65">
+        <div className="mt-2 rounded-xl border border-[#E2E8F0] bg-white px-3 py-3 text-center text-[12px] text-[#718096]">
           Odds unavailable
         </div>
       )}
@@ -358,13 +362,13 @@ export function MobileOddsCard({
       {showInstanceMarkets && (
         <div className="mt-3 space-y-1.5" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-white/60">
+            <span className="text-[11px] font-semibold text-[#1A202C]">
               Quick Plays
             </span>
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-[11px] text-emerald-300 hover:text-emerald-200"
+              className="h-7 px-2 text-[11px] text-[#2563EB] hover:text-[#1D4ED8]"
               onClick={(e) => {
                 e.stopPropagation();
                 setLocation(`/match/${match.id}`);
@@ -375,17 +379,14 @@ export function MobileOddsCard({
           </div>
 
           {instanceMarkets.slice(0, 2).map((market) => (
-            <div
-              key={market.id}
-              className="p-2.5 rounded-xl border border-white/10 bg-white/[0.03] space-y-1.5"
-            >
+            <div key={market.id} className="p-2.5 rounded-xl border border-[#E2E8F0] bg-white space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-medium truncate max-w-[70%]">
                   {market.name}
                 </span>
                 <Badge
                   variant="outline"
-                  className="text-[9px] border-white/20 bg-black/30 text-white/80"
+                  className="text-[9px] border-[#E2E8F0] bg-white text-[#718096]"
                 >
                   {getTimeRemaining(market.closeTime || "")}
                 </Badge>
@@ -399,7 +400,7 @@ export function MobileOddsCard({
                     size="sm"
                     disabled={market.status !== "OPEN"}
                     className={cn(
-                      "h-8 flex-col gap-0 text-center p-1 rounded-lg border-white/20 bg-white/[0.02]",
+                      "h-8 flex-col gap-0 text-center p-1 rounded-lg border-[#E2E8F0] bg-white text-[#1A202C]",
                       market.status !== "OPEN" && "opacity-50"
                     )}
                     onClick={(e) => {

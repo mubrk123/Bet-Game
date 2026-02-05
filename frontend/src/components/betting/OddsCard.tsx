@@ -9,6 +9,7 @@ type OddsCardProps = {
   matchId: string;
   onBetSelect: (match: Match, runner: Runner, type: "BACK" | "LAY", odds: number) => void;
   embedded?: boolean;
+  variant?: "ivory" | "default" | "dark";
 };
 
 function shouldShowRunnerLabel(runnerName: string, match: Match) {
@@ -73,7 +74,7 @@ function getTossLine(match: Match | null | undefined) {
   return null;
 }
 
-export function OddsCard({ matchId, onBetSelect, embedded = false }: OddsCardProps) {
+export function OddsCard({ matchId, onBetSelect, embedded = false, variant = "default" }: OddsCardProps) {
   const match = useStore((state) => state.matches.find((m) => m.id === matchId));
   const [, setLocation] = useLocation();
 
@@ -141,6 +142,9 @@ export function OddsCard({ matchId, onBetSelect, embedded = false }: OddsCardPro
     mainMarket.runners.some((r) => Number.isFinite(r.backOdds));
   const handleOpenMatch = () => setLocation(`/match/${match.id}`);
 
+  const isIvory = variant === "ivory";
+  const isDark = variant === "dark";
+
   return (
     <div
       role="button"
@@ -148,22 +152,36 @@ export function OddsCard({ matchId, onBetSelect, embedded = false }: OddsCardPro
       onClick={handleOpenMatch}
       onKeyDown={(e) => e.key === "Enter" && handleOpenMatch()}
       className={cn(
-        "rounded-2xl overflow-hidden border border-white/10 bg-white/[0.03] backdrop-blur-xl",
-        "text-foreground shadow-[0_18px_55px_rgba(0,0,0,0.55)] cursor-pointer",
-        "hover:border-white/20 transition-colors"
+        "rounded-2xl overflow-hidden cursor-pointer transition",
+        isIvory
+          ? "border border-[#E5E0D6] bg-[#FDFBF6] shadow-sm hover:shadow-md"
+          : isDark
+            ? "border border-[#1F2937] bg-[#0B1220] text-white shadow-[0_18px_45px_rgba(0,0,0,0.45)] hover:border-[#22d3ee44]"
+            : "border border-white/10 bg-white/[0.03] backdrop-blur-xl text-foreground shadow-[0_18px_55px_rgba(0,0,0,0.55)] hover:border-white/20"
       )}
       data-testid={`odds-card-${match.id}`}
     >
       <div className="px-3 py-3 space-y-3">
         {!embedded && (
-          <div className="text-xs text-white/70">
-            {match.homeTeam} <span className="text-white/40">vs</span> {match.awayTeam}
+          <div className={cn("text-xs", isIvory ? "text-[#718096]" : isDark ? "text-[#E2E8F0]" : "text-white/70")}>
+            {match.homeTeam}{" "}
+            <span className={cn(isIvory ? "text-[#CBD5E0]" : isDark ? "text-[#94A3B8]" : "text-white/40")}>vs</span>{" "}
+            {match.awayTeam}
           </div>
         )}
 
         {tossLine && (
-          <div className="flex items-center gap-2 rounded-xl border border-amber-400/40 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-300 animate-pulse" />
+          <div
+            className={cn(
+              "flex items-center gap-2 rounded-xl px-2.5 py-2 text-[11px]",
+              isIvory
+                ? "border border-[#F6E05E] bg-[#FFF9DB] text-[#B7791F]"
+                : isDark
+                  ? "border border-[#1F2937] bg-[#111827] text-[#E5E7EB]"
+                  : "border border-amber-400/40 bg-amber-500/10 text-amber-100"
+            )}
+          >
+            <span className={cn("h-1.5 w-1.5 rounded-full", isIvory ? "bg-[#B7791F]" : "bg-amber-300", "animate-pulse")} />
             <span className="truncate">{tossLine}</span>
           </div>
         )}
@@ -175,25 +193,37 @@ export function OddsCard({ matchId, onBetSelect, embedded = false }: OddsCardPro
 
               const back = typeof runner.backOdds === "number" ? runner.backOdds : null;
               const lay = typeof runner.layOdds === "number" ? runner.layOdds : null;
+              const liquidity = Number.isFinite(runner.volume) ? runner.volume : null;
 
               return (
                 <div
                   key={runner.id}
-                  className="p-2.5 rounded-xl border border-white/10 bg-white/[0.03] flex flex-col gap-1.5"
+                  className={cn(
+                    "p-2.5 rounded-xl flex flex-col gap-1.5",
+                    isIvory ? "border border-[#E2E8F0] bg-white" : "border border-white/10 bg-white/[0.03]"
+                  )}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="flex justify-between items-center">
                     {showLabel ? (
-                      <span className="text-xs font-medium text-white truncate">{runner.name}</span>
+                      <span className={cn("text-xs font-medium truncate", isIvory ? "text-[#1A202C]" : "text-white")}>
+                        {runner.name}
+                      </span>
                     ) : (
-                      <span className="text-[10px] text-white/45"> </span>
+                      <span className={cn("text-[10px]", isIvory ? "text-[#CBD5E0]" : "text-white/45")}> </span>
                     )}
 
                     {oddsChanged[runner.id] && (
                       <span
                         className={cn(
                           "text-[10px] font-bold",
-                          oddsChanged[runner.id] === "up" ? "text-emerald-400" : "text-rose-400"
+                          oddsChanged[runner.id] === "up"
+                            ? isIvory
+                              ? "text-[#059669]"
+                              : "text-emerald-400"
+                            : isIvory
+                              ? "text-[#E11D48]"
+                              : "text-rose-400"
                         )}
                       >
                         {oddsChanged[runner.id] === "up" ? "↑" : "↓"}
@@ -205,11 +235,11 @@ export function OddsCard({ matchId, onBetSelect, embedded = false }: OddsCardPro
                     <Button
                       variant="outline"
                       className={cn(
-                        "h-10 flex-col rounded-xl border text-white text-xs transition",
-                        "bg-sky-500/15 border-sky-300/25 hover:bg-sky-500/20 hover:border-sky-200/40",
-                        "hover:shadow-[0_0_0_1px_rgba(56,189,248,0.25),0_18px_40px_rgba(0,0,0,0.45)]",
-                        "active:scale-[0.99]",
-                        oddsChanged[runner.id] === "up" && "ring-1 ring-emerald-400/60"
+                        "h-12 flex-col rounded-xl border text-xs transition active:scale-[0.99]",
+                        isIvory
+                          ? "bg-[#ECFDF5] border-[#BBF7D0] text-[#059669] hover:bg-[#DDF7EB]"
+                          : "bg-sky-500/15 border-sky-300/25 text-white hover:bg-sky-500/20 hover:border-sky-200/40",
+                        oddsChanged[runner.id] === "up" && (isIvory ? "ring-1 ring-[#34D399]/40" : "ring-1 ring-emerald-400/60")
                       )}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -226,17 +256,20 @@ export function OddsCard({ matchId, onBetSelect, embedded = false }: OddsCardPro
                       >
                         {back !== null ? back.toFixed(2) : "—"}
                       </span>
-                      <span className="text-[9px] opacity-75 mt-0.5">Back</span>
+                      <span className={cn("text-[10px] mt-0.5", isIvory ? "text-[#718096]" : "text-white/75")}>
+                        Back
+                        {liquidity ? ` · ${Math.round(liquidity / 1000)}k` : ""}
+                      </span>
                     </Button>
 
                     <Button
                       variant="outline"
                       className={cn(
-                        "h-10 flex-col rounded-xl border text-white text-xs transition",
-                        "bg-rose-500/15 border-rose-300/25 hover:bg-rose-500/20 hover:border-rose-200/40",
-                        "hover:shadow-[0_0_0_1px_rgba(251,113,133,0.22),0_18px_40px_rgba(0,0,0,0.45)]",
-                        "active:scale-[0.99]",
-                        oddsChanged[runner.id] === "down" && "ring-1 ring-rose-400/60"
+                        "h-12 flex-col rounded-xl border text-xs transition active:scale-[0.99]",
+                        isIvory
+                          ? "bg-[#FFF1F2] border-[#FECDD3] text-[#E11D48] hover:bg-[#FFE4E8]"
+                          : "bg-rose-500/15 border-rose-300/25 text-white hover:bg-rose-500/20 hover:border-rose-200/40",
+                        oddsChanged[runner.id] === "down" && (isIvory ? "ring-1 ring-[#FB7185]/50" : "ring-1 ring-rose-400/60")
                       )}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -253,7 +286,10 @@ export function OddsCard({ matchId, onBetSelect, embedded = false }: OddsCardPro
                       >
                         {lay !== null ? lay.toFixed(2) : "—"}
                       </span>
-                      <span className="text-[9px] opacity-75 mt-0.5">Lay</span>
+                      <span className={cn("text-[10px] mt-0.5", isIvory ? "text-[#718096]" : "text-white/75")}>
+                        Lay
+                        {liquidity ? ` · ${Math.round(liquidity / 1000)}k` : ""}
+                      </span>
                     </Button>
                   </div>
                 </div>
@@ -261,7 +297,12 @@ export function OddsCard({ matchId, onBetSelect, embedded = false }: OddsCardPro
             })}
           </div>
         ) : (
-          <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-4 text-center text-[12px] text-white/65">
+          <div
+            className={cn(
+              "rounded-xl px-3 py-4 text-center text-[12px]",
+              isIvory ? "border border-[#E2E8F0] bg-white text-[#718096]" : "border border-white/10 bg-white/[0.02] text-white/65"
+            )}
+          >
             Odds unavailable
           </div>
         )}

@@ -48,14 +48,14 @@ export function BottomNav() {
         <div
           className={cn(
             "flex h-full flex-col items-center justify-center gap-1 rounded-lg px-2 py-2",
-            "text-white/70 border border-transparent transition-all duration-150",
-            "hover:text-white hover:bg-white/5",
+            "text-[#94A3B8] border border-transparent transition-all duration-150",
+            "hover:text-[#1A202C] hover:bg-white",
             isActive &&
-              "text-white bg-white/8 border-primary/30 shadow-[0_8px_24px_-14px_rgba(46,230,197,0.6)]"
+              "text-[#2563EB] bg-white border-[#E2E8F0] shadow-[0_6px_20px_-12px_rgba(37,99,235,0.45)]"
           )}
           data-testid={item.testId}
         >
-          <item.icon className={cn("h-5 w-5", isActive && "text-primary")} />
+          <item.icon className={cn("h-5 w-5", isActive && "text-[#2563EB]")} />
           <span className="text-[11px] font-medium leading-none">{item.label}</span>
         </div>
       </Link>
@@ -64,7 +64,7 @@ export function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden safe-area-bottom">
-      <div className="bg-black/60 backdrop-blur-2xl border-t border-white/10">
+      <div className="bg-white border-t border-[#E2E8F0] shadow-[0_-6px_20px_rgba(15,23,42,0.12)]">
         <div className="flex items-stretch gap-1 px-3 py-2">{navItems.map((item) => renderNavItem(item))}</div>
       </div>
     </nav>

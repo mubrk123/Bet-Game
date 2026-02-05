@@ -1,12 +1,12 @@
 import { AppShell } from "@/components/layout/AppShell";
 import { useStore } from "@/lib/store";
 import type { Match, Market } from "@/lib/store";
-import { useRoute, Link } from "wouter";
+import { useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Activity, Clock3, X } from "lucide-react";
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Activity, Clock3, X, ArrowLeft } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type InstanceMarket, type InstanceOutcome } from "@/lib/api";
@@ -14,6 +14,30 @@ import { wsClient } from "@/lib/websocket";
 import type { MatchScoreUpdate, BallResult } from "@shared/realtime";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+
+/* =========================
+   Visual tokens (Warm Ivory)
+========================= */
+const ui = {
+  bg: "bg-[#F7F5EF]",
+  card: "bg-[#FDFBF6]",
+  text: "text-[#111827]",
+  textMuted: "text-[#4B5563]",
+  border: "border-[#E5E0D6]",
+  icon: "text-[#B0B7C3]",
+  backBg: "bg-[#D6F4E3]",
+  backText: "text-[#0A6A4A]",
+  layBg: "bg-[#FFE0E6]",
+  layText: "text-[#C81E3D]",
+  suspendedBg: "bg-[#F3F4F6]",
+  suspendedText: "text-[#9CA3AF]",
+  accentTeal: "text-[#1ABC9C]",
+  accentBlue: "text-[#2980B9]",
+  boundary: "bg-[rgba(244,208,63,0.8)] text-[#1F2733]",
+  wicket: "bg-[#F1948A] text-white",
+};
+
+const softShadow = "shadow-[0_4px_16px_rgba(15,23,42,0.04)]";
 
 /* =========================
    Helpers + Types
@@ -52,14 +76,6 @@ function dedupeBallEvents(list: BallEventRow[]): BallEventRow[] {
   }
   return result;
 }
-
-type PulseChip = {
-  label: string;
-  kind: "RESULT" | "UPCOMING";
-  muted?: boolean;
-  emphasize?: boolean;
-  subLabel?: string;
-};
 
 type SquadSide = {
   playingXi: string[];
@@ -151,14 +167,7 @@ function mapToHomeAwayTeam(raw: string | null | undefined, home: string, away: s
 function resolvePlayerName(players: Record<string, any> | null | undefined, key?: string | null) {
   if (!key) return null;
   const p = players?.[key];
-  return (
-    p?.player?.name ||
-    p?.name ||
-    p?.short_name ||
-    p?.full_name ||
-    p?.player_name ||
-    key
-  );
+  return p?.player?.name || p?.name || p?.short_name || p?.full_name || p?.player_name || key;
 }
 
 function extractSquadSide(node: any, players: Record<string, any> | null | undefined): SquadSide | null {
@@ -193,17 +202,45 @@ function teamInitials(name: string) {
   return initials.slice(0, 3).toUpperCase();
 }
 
-function formatMatchTime(dateStr: string | null | undefined) {
-  if (!dateStr) return "Time TBA";
+function formatShortDayTime(dateStr: string | null | undefined) {
+  if (!dateStr) return "Date/Time TBA";
   const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return "Time TBA";
-  return d.toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  if (Number.isNaN(d.getTime())) return "Date/Time TBA";
+  return d.toLocaleString(undefined, {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function dicebearFor(name: string) {
   return `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
     name || "team"
   )}&backgroundColor=0f172a&fontWeight=700`;
+}
+
+// Helper: best-effort over.ball label from market metadata
+function formatOverLabel(market: InstanceMarket | null | undefined): string | null {
+  if (!market) return null;
+  const over = toNum((market as any).ro_over_number ?? (market as any).over_number ?? (market as any).over ?? NaN, NaN);
+  const ball = toNum((market as any).ro_ball_number ?? (market as any).ball_number ?? (market as any).ball ?? NaN, NaN);
+  if (Number.isFinite(over) && Number.isFinite(ball)) return `${over}.${ball}`;
+  if (Number.isFinite(over)) return `Over ${over}`;
+  return null;
+}
+
+function compactTossLine(line: string | null): string | null {
+  if (!line) return null;
+  const m = line.match(/toss:\s*([^&]+?)(?:\s+won)?(?:.*?(bat|bowl))/i);
+  if (m) {
+    const team = m[1].trim();
+    const decision = (m[2] || "").trim().toLowerCase();
+    if (team && decision) return `Toss:${team}/${decision}`;
+  }
+  const m2 = line.match(/([^,]+)\s+won.*?(bat|bowl)/i);
+  if (m2) return `Toss:${m2[1].trim()}/${m2[2].trim().toLowerCase()}`;
+  return line;
 }
 
 function TeamBadge({ name, banner }: { name: string; banner?: string | null }) {
@@ -214,16 +251,16 @@ function TeamBadge({ name, banner }: { name: string; banner?: string | null }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
       {showFallback ? (
-        <div className="h-11 w-11 sm:h-12 sm:w-12 rounded-full bg-white/5 border border-white/15 flex items-center justify-center text-sm sm:text-base font-semibold text-white">
+        <div className="h-8 w-11 sm:h-9 sm:w-12 rounded-sm bg-[#E5E7EB] border border-[#E2E8F0] flex items-center justify-center text-sm sm:text-base font-semibold text-[#2D3436]">
           {teamInitials(name)}
         </div>
       ) : (
-        <div className="h-11 w-11 sm:h-12 sm:w-12 rounded-full bg-white/5 border border-white/15 overflow-hidden flex items-center justify-center">
+        <div className="h-8 w-11 sm:h-9 sm:w-12 rounded-sm overflow-hidden flex items-center justify-center border border-[#E2E8F0]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={resolvedBanner}
             alt={name}
-            className="h-full w-full object-contain p-1"
+            className="h-full w-full object-contain"
             onError={() => setImgError(true)}
             loading="lazy"
             crossOrigin="anonymous"
@@ -231,7 +268,7 @@ function TeamBadge({ name, banner }: { name: string; banner?: string | null }) {
           />
         </div>
       )}
-      <p className="text-[11px] sm:text-xs text-white/80 text-center max-w-[120px] truncate">{name}</p>
+      <p className="text-[11px] sm:text-xs text-[#2D3436] text-center max-w-[120px] truncate">{name}</p>
     </div>
   );
 }
@@ -480,16 +517,15 @@ export function outcomeFromBallResult(b: BallResult) {
 }
 
 function chipStyle(label: string, muted = false) {
-  const baseMuted = muted ? "opacity-45" : "opacity-100";
-  if (label === "W") return `bg-amber-400 text-amber-950 font-bold shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${baseMuted}`;
-  if (label.startsWith("Wd")) return `bg-violet-500/85 text-white font-bold shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${baseMuted}`;
-  if (label.startsWith("Nb")) return `bg-fuchsia-500/85 text-white font-bold shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${baseMuted}`;
-  if (label === "6") return `bg-red-500/85 text-white font-bold shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${baseMuted}`;
-  if (label === "4") return `bg-emerald-400/85 text-emerald-950 font-bold shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${baseMuted}`;
-  if (label === "0") return `bg-emerald-700/60 text-white font-bold shadow-[0_8px_18px_rgba(0,0,0,0.5)] ${baseMuted}`;
+  const baseMuted = muted ? "opacity-60" : "opacity-100";
+  if (label === "W") return `${ui.wicket} font-semibold ${baseMuted}`;
+  if (label === "6" || label === "4") return `${ui.boundary} font-semibold ${baseMuted}`;
+  if (label.startsWith("Wd") || label.startsWith("Nb"))
+    return `${ui.backBg} ${ui.accentBlue} font-semibold ${baseMuted}`;
+  if (label === "0") return `bg-[#E5E7EB] text-[#4B5563] font-semibold ${baseMuted}`;
   const n = Number(label);
-  if (Number.isFinite(n) && n > 0) return `bg-sky-500/40 text-white font-semibold ${baseMuted}`;
-  return `bg-white/[0.02] text-white/70 border border-white/10 ${baseMuted}`;
+  if (Number.isFinite(n) && n > 0) return `${ui.backBg} ${ui.backText} font-semibold ${baseMuted}`;
+  return `bg-[#FDFBF6] text-[#4B5563] border border-[#E5E0D6] ${baseMuted}`;
 }
 
 function deriveFromBallEvents(events: BallEventRow[], activeInning: number) {
@@ -563,7 +599,16 @@ function deriveFromBallEvents(events: BallEventRow[], activeInning: number) {
   return {
     striker: { name: strikerName, ...strikerStats },
     nonStriker: { name: nonStrikerName, ...nonStrikerStats },
-    bowler: { name: bowlerName, runs: runsConceded, wkts, econ, overs, maidens, fig: `${overs}-${maidens}-${runsConceded}-${wkts}`, compact },
+    bowler: {
+      name: bowlerName,
+      runs: runsConceded,
+      wkts,
+      econ,
+      overs,
+      maidens,
+      fig: `${overs}-${maidens}-${runsConceded}-${wkts}`,
+      compact,
+    },
   };
 }
 
@@ -627,51 +672,59 @@ function CompactMarketGrid({
 }: {
   market: InstanceMarket;
   title?: string | null;
-  onPick: (m: InstanceMarket, o: InstanceOutcome) => void;
+  onPick: (m: InstanceMarket, o: InstanceOutcome, pos?: { x: number; y: number }) => void;
   selectedOutcomeId?: string | null;
   timeRemaining: (closeTime?: string | null) => string;
   maxCells?: number;
 }) {
   const outcomes = (market?.outcomes ?? []).slice(0, maxCells);
+  const status = String((market as any)?.market_status || (market as any)?.status || "").toUpperCase();
+  const isClosed = status && status !== "OPEN";
+  const cols = outcomes.length <= 2 ? 2 : outcomes.length === 4 ? 2 : 3;
 
-  // 3 columns always; 6 outcomes -> 2 rows. If fewer, still table-like.
   return (
-    <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-2 shadow-[0_14px_32px_rgba(0,0,0,0.35)]">
+    <div className={cn("rounded-2xl border border-[#E5E0D6] bg-[#FDFBF6] p-1.5", softShadow)}>
       <div className="flex items-center justify-between gap-2">
-        {/* ultra-compact title (optional, no big heading line) */}
-        {title ? <div className="text-[11px] text-white/75 truncate">{title}</div> : <div />}
-        <Badge className="bg-white/10 text-emerald-200 border-emerald-400/40 flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full">
+        {title ? <div className="text-[11px] text-[#111827] truncate font-semibold">{title}</div> : <div />}
+        <Badge
+          className={cn(
+            "flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border",
+            isClosed
+              ? "bg-[#FEE2E2] text-[#B91C1C] border-[#FCA5A5]"
+              : "bg-[#E8F6F1] text-[#1ABC9C] border-[#1ABC9C33]"
+          )}
+        >
           <Clock3 className="h-3 w-3" />
-          {timeRemaining(market.close_time)}
+          {isClosed ? "Closed" : timeRemaining(market.close_time)}
         </Badge>
       </div>
 
-      <div className="mt-2 overflow-hidden rounded-xl border border-white/10">
-        <div className="grid grid-cols-3">
+      <div className="mt-1.5 overflow-hidden rounded-xl border border-[#94A3B8]">
+        <div className={cn("grid", cols === 2 ? "grid-cols-2" : "grid-cols-3")}>
           {outcomes.map((o, idx) => {
             const selected = selectedOutcomeId === o.id;
-            const isRowTop = idx < 3;
+            const isLastRow = idx >= outcomes.length - cols;
             return (
               <button
                 key={o.id}
-                onClick={() => onPick(market, o)}
+                onClick={(e) => {
+                  if (isClosed) return;
+                  onPick(market, o, { x: e.clientX, y: e.clientY });
+                }}
                 className={cn(
-                  "group text-left bg-white/[0.03] hover:bg-white/[0.06] transition",
-                  "px-2 py-1.5 min-h-[44px] flex flex-col justify-center",
-                  idx % 3 !== 2 && "border-r border-white/10",
-                  isRowTop && "border-b border-white/10",
-                  selected && "bg-emerald-500/10 ring-1 ring-emerald-400/60"
+                  "text-left bg-[#FDFBF6] hover:bg-[#F1EDE2] transition",
+                  "px-2 py-1.5 min-h-[44px] flex flex-col justify-center gap-1",
+                  idx % cols !== cols - 1 && "border-r border-[#94A3B8]",
+                  !isLastRow && "border-b border-[#94A3B8]",
+                  selected && "bg-[#E8F6F1] ring-1 ring-[#1ABC9C]",
+                  isClosed && "opacity-60 cursor-not-allowed"
                 )}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] text-white/85 truncate">{o.name}</span>
-                  <span className="font-mono tabular-nums text-[13px] font-bold text-emerald-300">
+                  <span className="text-[11px] text-[#111827] leading-snug truncate">{o.name}</span>
+                  <span className="font-mono tabular-nums text-[13px] font-bold text-[#0B8A5F]">
                     {Number(o.odds).toFixed(2)}
                   </span>
-                </div>
-                <div className="mt-0.5 flex items-center justify-between">
-                  <span className="text-[10px] text-white/45">Tap to bet</span>
-                  <span className="text-[10px] text-white/35 group-hover:text-white/55">▶</span>
                 </div>
               </button>
             );
@@ -690,6 +743,9 @@ function QuickBetSheet({
   setStake,
   onClose,
   onPlace,
+  anchor,
+  placing,
+  currencySymbol = "₹",
 }: {
   open: boolean;
   market: InstanceMarket | null;
@@ -698,58 +754,88 @@ function QuickBetSheet({
   setStake: (v: string) => void;
   onClose: () => void;
   onPlace: () => void;
+  anchor: { x: number; y: number } | null;
+  placing: boolean;
+  currencySymbol?: string;
 }) {
   if (!open || !market || !outcome) return null;
 
+  const quickAmounts = [50, 100, 200, 500];
+  const infoOver = formatOverLabel(market);
+
+  const dims = { w: 320, h: 210 };
+  const viewport =
+    typeof window !== "undefined"
+      ? { w: window.innerWidth, h: window.innerHeight }
+      : { w: 360, h: 640 };
+  const target = anchor ?? { x: viewport.w / 2, y: viewport.h / 2 };
+  const left = Math.max(12, Math.min(viewport.w - dims.w - 12, target.x - dims.w / 2));
+  const top = Math.max(12, Math.min(viewport.h - dims.h - 12, target.y - dims.h / 2));
+
   return (
     <div className="fixed inset-0 z-50">
-      {/* overlay */}
-      <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
-
-      {/* compact bottom sheet */}
-      <div className="absolute inset-x-0 bottom-2 px-3 sm:px-4">
-        <div className="rounded-2xl border border-white/10 bg-slate-950/80 backdrop-blur-xl shadow-[0_18px_44px_rgba(0,0,0,0.75)]">
-          <div className="p-2.5">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-white truncate">
-                  {outcome.name} @ {Number(outcome.odds).toFixed(2)}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={onClose}>
-                  <X className="h-4 w-4 text-white/80" />
-                </Button>
-                <Button size="sm" className="h-8 px-3 rounded-xl" onClick={onPlace}>
-                  Place bet
-                </Button>
-              </div>
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+      <div
+        className="absolute rounded-2xl border border-[#E5E0D6] bg-[#FDFBF6] shadow-[0_14px_40px_rgba(0,0,0,0.18)] p-3 space-y-2"
+        style={{ left, top, width: dims.w, maxWidth: "92vw" }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 space-y-0.5">
+            <div className="text-sm font-semibold text-[#111827] truncate">
+              Selected: {outcome.name} @ {Number(outcome.odds).toFixed(2)}
             </div>
-
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="number"
-                className="w-24 rounded-xl bg-black/40 border border-white/15 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
-                value={stake}
-                min={1}
-                onChange={(e) => setStake(e.target.value)}
-              />
-              <div className="flex items-center gap-1.5">
-                {[50, 100, 200].map((amt) => (
-                  <Button
-                    key={amt}
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 px-2 text-[11px] border border-white/10 bg-white/5"
-                    onClick={() => setStake(String(amt))}
-                  >
-                    ₹{amt}
-                  </Button>
-                ))}
-              </div>
-              <div className="flex-1" />
-            </div>
+            {infoOver && <div className="text-[11px] text-[#4B5563]">Over: {infoOver}</div>}
           </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={onClose}>
+              <X className="h-4 w-4 text-[#6C757D]" />
+            </Button>
+            <Button
+              size="sm"
+              className={cn(
+                "h-9 px-3 rounded-xl text-white",
+                placing ? "bg-[#9AE6B4] cursor-wait" : "bg-[#1ABC9C] hover:bg-[#159b82]"
+              )}
+              disabled={placing}
+              onClick={onPlace}
+            >
+              {placing ? "Placing..." : "Place bet"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="flex-1 space-y-1">
+            <label className="text-[10px] uppercase tracking-[0.08em] text-[#6B7280]">
+              Type your amount
+            </label>
+            <input
+              value={stake}
+              onChange={(e) => setStake(e.target.value.replace(/[^0-9.]/g, ""))}
+              type="text"
+              inputMode="decimal"
+              pattern="[0-9]*"
+              className="w-full h-10 rounded-lg border border-[#94A3B8] bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#1ABC9C66]"
+              placeholder="e.g. 100"
+              autoFocus
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          {quickAmounts.map((amt) => (
+            <button
+              key={amt}
+              className="flex-1 rounded-lg border border-[#E5E7EB] bg-white py-2 text-center text-[12px] font-semibold text-[#111827] hover:bg-[#F1F5F9] transition"
+              onClick={(e) => {
+                e.stopPropagation();
+                setStake(String(amt));
+              }}
+            >
+              {currencySymbol}
+              {amt}
+            </button>
+          ))}
         </div>
       </div>
     </div>
@@ -778,20 +864,20 @@ function PreMatchBetSheet({
   const hasLay = Number.isFinite(runner.layOdds) && (runner.layOdds ?? 0) > 1.01;
   return (
     <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/35 backdrop-blur-[2px]" onClick={onClose} />
       <div className="absolute inset-x-0 bottom-2 px-3 sm:px-4">
-        <div className="rounded-2xl border border-white/10 bg-slate-950/80 backdrop-blur-xl shadow-[0_18px_44px_rgba(0,0,0,0.75)]">
+        <div className="rounded-2xl border border-[#E5E0D6] bg-[#FDFBF6] backdrop-blur-xl shadow-[0_18px_44px_rgba(0,0,0,0.25)]">
           <div className="p-3 space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-white truncate">{runner.name}</div>
-                <div className="text-[11px] text-white/65">
+                <div className="text-sm font-semibold text-[#2D3436] truncate">{runner.name}</div>
+                <div className="text-[11px] text-[#6C757D]">
                   <span
                     className={cn(
-                      "mr-2 px-2 py-0.5 rounded-full text-[10px] border",
+                      "mr-2 px-2 py-0.5 rounded-full text-[10px] border cursor-pointer",
                       runner.type === "BACK"
-                        ? "bg-emerald-500/20 border-emerald-400/60 text-emerald-100"
-                        : "bg-white/5 border-white/15 text-white/65"
+                        ? "bg-[#E8F6F1] border-[#1ABC9C33] text-[#27AE60]"
+                        : "bg-[#FDFBF6] border-[#E5E0D6] text-[#7A7F87]"
                     )}
                     onClick={() => setType("BACK")}
                     role="button"
@@ -803,8 +889,8 @@ function PreMatchBetSheet({
                     className={cn(
                       "px-2 py-0.5 rounded-full text-[10px] border cursor-pointer",
                       runner.type === "LAY"
-                        ? "bg-amber-500/20 border-amber-400/60 text-amber-100"
-                        : "bg-white/5 border-white/15 text-white/65",
+                        ? "bg-[#FDF2F2] border-[#F3D0D0] text-[#EB5757]"
+                        : "bg-[#FDFBF6] border-[#E5E0D6] text-[#7A7F87]",
                       !hasLay && "opacity-40 cursor-not-allowed"
                     )}
                     onClick={() => hasLay && setType("LAY")}
@@ -816,13 +902,13 @@ function PreMatchBetSheet({
                 </div>
               </div>
               <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={onClose}>
-                <X className="h-4 w-4 text-white/80" />
+                <X className="h-4 w-4 text-[#6C757D]" />
               </Button>
             </div>
             <div className="flex items-center gap-2">
               <input
                 type="number"
-                className="w-28 rounded-xl bg-black/40 border border-white/15 px-2 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-400/60"
+                className="w-28 rounded-xl bg-white border border-[#E5E7EB] px-2 py-1.5 text-sm text-[#2D3436] focus:outline-none focus:ring-2 focus:ring-[#1ABC9C]"
                 value={stake}
                 min={1}
                 onChange={(e) => setStake(e.target.value)}
@@ -832,8 +918,8 @@ function PreMatchBetSheet({
                   <Button
                     key={amt}
                     size="sm"
-                    variant="ghost"
-                    className="h-8 px-2 text-[11px] border border-white/10 bg-white/5"
+                    variant="outline"
+                    className="h-8 px-2 text-[11px] border-[#E5E7EB] bg-white"
                     onClick={() => setStake(String(amt))}
                   >
                     ₹{amt}
@@ -872,12 +958,13 @@ export default function MatchDetail() {
   const [liveScore, setLiveScore] = useState<MatchScoreUpdate | null>(null);
   const [lastBall, setLastBall] = useState<BallResult | null>(null);
 
-  const [scorePulse, setScorePulse] = useState(false);
   const [nowTs, setNowTs] = useState(() => Date.now());
 
   const [instanceStake, setInstanceStake] = useState("50");
   const [selectedOutcome, setSelectedOutcome] = useState<InstanceOutcome | null>(null);
   const [selectedMarket, setSelectedMarket] = useState<InstanceMarket | null>(null);
+  const [betAnchor, setBetAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [placingQuick, setPlacingQuick] = useState(false);
   const [selectedRunner, setSelectedRunner] = useState<{
     marketId: string;
     runnerId: string;
@@ -888,6 +975,7 @@ export default function MatchDetail() {
   } | null>(null);
   const [winnerStake, setWinnerStake] = useState("100");
   const [activeTab, setActiveTab] = useState<"winner" | "live" | "session">("winner");
+  const defaultTabSetRef = useRef(false);
 
   useEffect(() => {
     wsClient.connect();
@@ -939,15 +1027,49 @@ export default function MatchDetail() {
       return markets;
     },
     staleTime: 5000,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: false,
   });
 
   const matchWithMarkets = useMemo(() => {
     if (!baseMatch) return null;
-    if (marketsOverride) return { ...baseMatch, markets: marketsOverride };
-    return baseMatch;
+
+    const normalizeMarket = (m: any) => ({
+      ...m,
+      runners: (m.runners || []).map((r: any) => ({
+        ...r,
+        backOdds: typeof r.backOdds === "string" ? parseFloat(r.backOdds) : r.backOdds,
+        layOdds: typeof r.layOdds === "string" ? parseFloat(r.layOdds) : r.layOdds,
+        back_odds: typeof r.back_odds === "string" ? parseFloat(r.back_odds) : r.back_odds,
+        lay_odds: typeof r.lay_odds === "string" ? parseFloat(r.lay_odds) : r.lay_odds,
+      })),
+    });
+
+    const base = (baseMatch.markets || []).map(normalizeMarket);
+    const override = (marketsOverride || []).map(normalizeMarket);
+
+    const mergedMap = new Map<string, any>();
+    const keyFor = (m: any) => (m.id ? `id:${m.id}` : `name:${String(m.name || m.market_name || "").toLowerCase()}`);
+
+    for (const m of override) mergedMap.set(keyFor(m), m);
+    for (const m of base) {
+      const k = keyFor(m);
+      if (!mergedMap.has(k)) mergedMap.set(k, m);
+    }
+
+    return { ...baseMatch, markets: Array.from(mergedMap.values()) };
   }, [baseMatch, marketsOverride]);
 
   const match = matchWithMarkets;
+    const isFinishedMatch = match?.status === "FINISHED";
+
+
+  useEffect(() => {
+    if (match && !defaultTabSetRef.current) {
+      setActiveTab(match.status === "LIVE" ? "live" : "winner");
+      defaultTabSetRef.current = true;
+    }
+  }, [match?.status]);
 
   useEffect(() => {
     if (fetchedMatch && !storeMatch) setMatches([...matches, fetchedMatch]);
@@ -1025,6 +1147,7 @@ export default function MatchDetail() {
     refetchOnReconnect: false,
     staleTime: 15_000,
     enabled: Boolean(params?.id),
+    refetchInterval: 15000,
   });
 
   const [ballFeed, setBallFeed] = useState<BallEventRow[]>([]);
@@ -1048,7 +1171,6 @@ export default function MatchDetail() {
 
       if (error) throw error;
 
-      // Map keys -> names from players table once per fetch
       const keys = Array.from(
         new Set(
           (data || [])
@@ -1073,34 +1195,37 @@ export default function MatchDetail() {
         }
       }
 
-      const mapped = (data ?? []).map((row: any) => {
-        const extraShort = normalizeExtraTypeShort(row.ro_extra_type);
-        const over = Number(row.ro_over_number ?? 0);
-        const ballNum = Number(row.ro_ball_in_over ?? 0);
-        const totalRunsNum = Number(row.ro_total_runs ?? 0);
-        const wicket = !!row.ro_is_wicket;
-        if (isPlaceholderBall(over, ballNum, totalRunsNum, wicket)) return null;
-        return {
-          inning: Number(row.ro_inning_number ?? 1),
-          over,
-          ball: ballNum,
-          sub_ball: Number(row.ro_sub_ball_number ?? 0),
-          ball_key: row.ro_ball_key || undefined,
-          is_legal: row.ro_is_legal_delivery ?? true,
-          batsman_name: row.ro_batsman_name || nameMap[row.ro_batsman_key] || row.ro_batsman_key || "—",
-          non_striker_name: row.ro_non_striker_name || nameMap[row.ro_non_striker_key] || row.ro_non_striker_key || "—",
-          bowler_name: row.ro_bowler_name || nameMap[row.ro_bowler_key] || row.ro_bowler_key || "—",
-          runs: Number(row.ro_batsman_runs ?? 0),
-          extras: Number(row.ro_extras_runs ?? 0),
-          total_runs: totalRunsNum,
-          is_wicket: wicket,
-          is_extra: (row.ro_extras_runs ?? 0) > 0 || !!extraShort,
-          extra_type: extraShort ? row.ro_extra_type ?? null : null,
-          is_boundary: !!row.ro_is_boundary,
-          is_six: !!row.ro_is_six,
-          created_at: row.created_at,
-        };
-      }).filter(Boolean) as BallEventRow[];
+      const mapped = (data ?? [])
+        .map((row: any) => {
+          const extraShort = normalizeExtraTypeShort(row.ro_extra_type);
+          const over = Number(row.ro_over_number ?? 0);
+          const ballNum = Number(row.ro_ball_in_over ?? 0);
+          const totalRunsNum = Number(row.ro_total_runs ?? 0);
+          const wicket = !!row.ro_is_wicket;
+          if (isPlaceholderBall(over, ballNum, totalRunsNum, wicket)) return null;
+          return {
+            inning: Number(row.ro_inning_number ?? 1),
+            over,
+            ball: ballNum,
+            sub_ball: Number(row.ro_sub_ball_number ?? 0),
+            ball_key: row.ro_ball_key || undefined,
+            is_legal: row.ro_is_legal_delivery ?? true,
+            batsman_name: row.ro_batsman_name || nameMap[row.ro_batsman_key] || row.ro_batsman_key || "—",
+            non_striker_name:
+              row.ro_non_striker_name || nameMap[row.ro_non_striker_key] || row.ro_non_striker_key || "—",
+            bowler_name: row.ro_bowler_name || nameMap[row.ro_bowler_key] || row.ro_bowler_key || "—",
+            runs: Number(row.ro_batsman_runs ?? 0),
+            extras: Number(row.ro_extras_runs ?? 0),
+            total_runs: totalRunsNum,
+            is_wicket: wicket,
+            is_extra: (row.ro_extras_runs ?? 0) > 0 || !!extraShort,
+            extra_type: extraShort ? row.ro_extra_type ?? null : null,
+            is_boundary: !!row.ro_is_boundary,
+            is_six: !!row.ro_is_six,
+            created_at: row.created_at,
+          };
+        })
+        .filter(Boolean) as BallEventRow[];
 
       const deduped = dedupeBallEvents(mapped);
       setBallFeed(deduped);
@@ -1108,17 +1233,17 @@ export default function MatchDetail() {
     },
   });
 
-const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery<InstanceMarket[]>({
-  queryKey: ["instance-markets", dbMatchId],
-  enabled: Boolean(dbMatchId),
-  refetchOnWindowFocus: false,
-  refetchOnReconnect: true,
-  queryFn: async () => {
-    if (!dbMatchId) return [];
-    const { markets } = await api.getInstanceMarkets(dbMatchId, ["OPEN"]);
-    return markets as InstanceMarket[];
-  },
-});
+  const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery<InstanceMarket[]>({
+    queryKey: ["instance-markets", dbMatchId],
+    enabled: Boolean(dbMatchId),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    queryFn: async () => {
+      if (!dbMatchId) return [];
+      const { markets } = await api.getInstanceMarkets(dbMatchId, ["OPEN"]);
+      return markets as InstanceMarket[];
+    },
+  });
 
   const { data: squadsData } = useQuery<Squads | null>({
     queryKey: ["match-squad", dbMatchId, match?.status, match?.homeTeam, match?.awayTeam],
@@ -1244,7 +1369,10 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
   }, [effectiveEvents, activeInning]);
 
   const derived = useMemo(() => deriveFromBallEvents(effectiveEvents, activeInning), [effectiveEvents, activeInning]);
-  const inningScoreFromDb = useMemo(() => deriveScoreFromBallEvents(effectiveEvents, activeInning), [effectiveEvents, activeInning]);
+  const inningScoreFromDb = useMemo(
+    () => deriveScoreFromBallEvents(effectiveEvents, activeInning),
+    [effectiveEvents, activeInning]
+  );
 
   const battingTeamResolved = useMemo(() => {
     const home = match?.homeTeam || "";
@@ -1284,11 +1412,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     return strictTeamEquals(battingTeamResolved, match.homeTeam) || fuzzyTeamMatch(battingTeamResolved, match.homeTeam);
   }, [battingTeamResolved, match?.homeTeam]);
 
-  const isAwayBatting = useMemo(() => {
-    if (!battingTeamResolved || !match?.awayTeam) return false;
-    return strictTeamEquals(battingTeamResolved, match.awayTeam) || fuzzyTeamMatch(battingTeamResolved, match.awayTeam);
-  }, [battingTeamResolved, match?.awayTeam]);
-
   useEffect(() => {
     const subId = dbMatchId || params?.id;
     if (!subId) return;
@@ -1305,8 +1428,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     const unsubBall = wsClient.on<BallResult>("match:ball", (data) => {
       if (data.matchId === subId) {
         setLastBall(data);
-        setScorePulse(true);
-        setTimeout(() => setScorePulse(false), 220);
       }
     });
 
@@ -1322,18 +1443,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
   const target = realtimeData?.targetRuns ?? parseTarget(displayDetails) ?? (match as any)?.targetRuns ?? null;
   const statusNote = (realtimeData as any)?.statusNote ?? match?.statusNote ?? null;
 
-  const teamContextLine = useCallback(
-    (teamName: string) => {
-      if (!isLive) return "";
-      const isBatting = fuzzyTeamMatch(teamName, battingTeamResolved);
-      if (activeInning === 1) return isBatting ? "Batting" : "Yet to bat";
-      if (isBatting) return target ? `Target ${target}` : "Chasing";
-      return "Bowling";
-    },
-    [isLive, battingTeamResolved, activeInning, target]
-  );
-
-  const tossLine = getTossLine(match, realtimeData, liveScore);
   const parsedDetails = parseScoreDetailsCompact(displayDetails);
   const parsedInnings = parseScoreDetailsInnings(displayDetails, match?.homeTeam || "", match?.awayTeam || "");
 
@@ -1383,6 +1492,7 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     "—";
 
   const required = parseRequired(displayDetails);
+  const rrr = required && required.balls > 0 ? ((required.runs / required.balls) * 6).toFixed(2) : null;
 
   const currentOverEvents = useMemo(() => {
     const overNum = Math.floor(toNum(authoritativeOverForText, 0));
@@ -1408,6 +1518,17 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     [currentOverEvents]
   );
 
+  const lastOverRuns = useMemo(() => {
+    const overNum = Math.floor(toNum(authoritativeOverForText, 0));
+    const prev = overNum - 1;
+    if (prev < 0) return null;
+    const rows = (effectiveEvents ?? []).filter(
+      (e) => toNum(e.inning, 1) === activeInning && Math.floor(toNum(e.over, 0)) === prev
+    );
+    if (!rows.length) return null;
+    return rows.reduce((sum, e) => sum + toNum(e.total_runs, toNum(e.runs) + toNum(e.extras)), 0);
+  }, [effectiveEvents, activeInning, authoritativeOverForText]);
+
   const pulseOverEvents = useMemo(() => {
     const legalCount = currentOverEvents.filter((e) => e.is_legal !== false).length;
     if (legalCount >= 6) return [] as typeof currentOverEvents;
@@ -1431,22 +1552,7 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
       if ((a.subBall ?? 0) !== (b.subBall ?? 0)) return (a.subBall ?? 0) - (b.subBall ?? 0);
       return a.createdAt - b.createdAt;
     });
-  }, [pulseOverEvents, lastBall, authoritativeOverForText, ballFeed.length]);
-
-  const pulse = useMemo(() => {
-    const filled: PulseChip[] = [];
-    pulseResults.forEach((res, idx) => {
-      filled.push({
-        label: res.label,
-        kind: "RESULT",
-        muted: false,
-        emphasize: idx === pulseResults.length - 1,
-        subLabel: res.subLabel || undefined,
-      });
-    });
-    filled.push({ label: "•", kind: "UPCOMING", muted: false, emphasize: true });
-    return filled;
-  }, [pulseResults]);
+  }, [pulseOverEvents]);
 
   const lastKnownBatsRef = useRef<{ striker: string; non: string }>({ striker: "—", non: "—" });
   useEffect(() => {
@@ -1459,7 +1565,6 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     if (validNon) lastKnownBatsRef.current.non = n;
   }, [derived.striker.name, derived.nonStriker.name, derived.bowler.name]);
 
-  // Parse timestamps that may arrive without an explicit offset; default to UTC.
   const parseUtcMs = (t?: string | null) => {
     if (!t) return Number.NaN;
     const hasZone = /[zZ]|[+-]\d{2}:\d{2}$/.test(t);
@@ -1485,9 +1590,7 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
       .filter(
         (m) =>
           (m.instance_type || (m as any).instanceType) === "NEXT_BALL" &&
-          ((m as any).market_status === "OPEN" ||
-            (m as any).status === "OPEN" ||
-            (m as any).marketStatus === "OPEN")
+          ((m as any).market_status === "OPEN" || (m as any).status === "OPEN" || (m as any).marketStatus === "OPEN")
       )
       .sort((a, b) => {
         const ia = toNum((a as any).ro_inning_number ?? (a as any).inning_number ?? 1, 1);
@@ -1532,9 +1635,7 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
       .filter(
         (m) =>
           (m.instance_type || (m as any).instanceType) === "NEXT_OVER" &&
-          ((m as any).market_status === "OPEN" ||
-            (m as any).status === "OPEN" ||
-            (m as any).marketStatus === "OPEN")
+          ((m as any).market_status === "OPEN" || (m as any).status === "OPEN" || (m as any).marketStatus === "OPEN")
       )
       .sort((a, b) => {
         const ia = toNum((a as any).ro_inning_number ?? 1, 1);
@@ -1551,14 +1652,9 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
 
   const activeNextOverMarkets = useMemo(() => {
     if (openNextOverMarkets.length === 0) return [];
-    const currentInningMarkets = openNextOverMarkets.filter(
-      (m) => toNum((m as any).ro_inning_number ?? 1, 1) === activeInning
-    );
+    const currentInningMarkets = openNextOverMarkets.filter((m) => toNum((m as any).ro_inning_number ?? 1, 1) === activeInning);
     const latestOver = toNum(latestInningBall?.over, -1);
-    const futureForCurrent = currentInningMarkets.filter((m) => {
-      const over = toNum((m as any).ro_over_number ?? 0, 0);
-      return over > latestOver;
-    });
+    const futureForCurrent = currentInningMarkets.filter((m) => toNum((m as any).ro_over_number ?? 0, 0) > latestOver);
     if (futureForCurrent.length > 0) return futureForCurrent;
     if (currentInningMarkets.length > 0) return currentInningMarkets;
     return openNextOverMarkets;
@@ -1571,21 +1667,12 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     return `Over ${over}`;
   };
 
-  const nextBallLabel = (m: InstanceMarket) => {
-    const over = toNum((m as any).ro_over_number ?? (m as any).over_number ?? 0, 0);
-    const ball = toNum((m as any).ro_ball_number ?? (m as any).ball_number ?? 1, 1);
-    const base = (m as any).market_title || (m as any).name || "Next Ball";
-    return `${base} • Ball ${over}.${ball}`;
-  };
-
   const openNextWicketMarkets = useMemo(() => {
     return (instanceMarkets as InstanceMarket[])
       .filter(
         (m) =>
           (m.instance_type || (m as any).instanceType) === "NEXT_WICKET_METHOD" &&
-          ((m as any).market_status === "OPEN" ||
-            (m as any).status === "OPEN" ||
-            (m as any).marketStatus === "OPEN")
+          ((m as any).market_status === "OPEN" || (m as any).status === "OPEN" || (m as any).marketStatus === "OPEN")
       )
       .sort((a, b) => {
         const ia = toNum((a as any).ro_inning_number ?? 1, 1);
@@ -1599,31 +1686,35 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
 
   const activeNextWicketMarket = useMemo(() => {
     if (openNextWicketMarkets.length === 0) return null;
-    const currentInningMarkets = openNextWicketMarkets.filter(
-      (m) => toNum((m as any).ro_inning_number ?? 1, 1) === activeInning
-    );
+    const currentInningMarkets = openNextWicketMarkets.filter((m) => toNum((m as any).ro_inning_number ?? 1, 1) === activeInning);
     if (currentInningMarkets.length > 0) return currentInningMarkets[0];
     return openNextWicketMarkets[0];
   }, [openNextWicketMarkets, activeInning]);
 
-  const onPickOutcome = (m: InstanceMarket, o: InstanceOutcome) => {
+  const onPickOutcome = (m: InstanceMarket, o: InstanceOutcome, pos?: { x: number; y: number }) => {
     setSelectedMarket(m);
     setSelectedOutcome(o);
+    if (pos) setBetAnchor(pos);
+    else if (typeof window !== "undefined") {
+      setBetAnchor({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    }
   };
 
   const matchWinnerMarket = useMemo(() => {
     if (!match?.markets) return null;
-    return match.markets.find(
-      (m: any) =>
-        String(m.name || m.market_name || "").toLowerCase() === "match winner"
-    ) || null;
+    return (
+      match.markets.find((m: any) => String(m.name || m.market_name || "").toLowerCase() === "match winner") || null
+    );
   }, [match?.markets]);
 
   const tossMarket = useMemo(() => {
     if (!match?.markets) return null;
-    return match.markets.find(
-      (m: any) => String(m.name || m.market_name || "").toLowerCase() === "toss"
-    ) || null;
+    return (
+      match.markets.find((m: any) => {
+        const n = String(m.name || m.market_name || "").toLowerCase();
+        return n === "toss" || n.includes("toss") || n.includes("coin");
+      }) || null
+    );
   }, [match?.markets]);
 
   const winSplit = useMemo(() => {
@@ -1631,24 +1722,28 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     const runners = matchWinnerMarket.runners || [];
     if (runners.length === 0) return null;
 
-    const mapped = runners
-      .map((r: any) => {
+    type RunnerEntry = { name: string; team: string | null; implied: number | null };
+    const mapped: RunnerEntry[] = runners
+      .map((r: any): RunnerEntry => {
         const name = r.name || r.runner_name || "";
         const odds = Number(r.backOdds ?? r.back_odds);
-        const probMeta = Number((r as any).probability ?? (r as any).prob ?? (r as any).implied_prob);
+        const probMeta = Number(r.probability ?? r.prob ?? r.implied_prob);
         let implied = Number.isFinite(probMeta) ? probMeta : Number.isFinite(odds) && odds > 1.01 ? 1 / odds : null;
         if (implied && implied > 1) implied = implied / 100;
-        const team = mapToHomeAwayTeam(name, match.homeTeam, match.awayTeam);
+        const team = mapToHomeAwayTeam(name, match.homeTeam, match.awayTeam) ?? null;
         return { name, team, implied: implied ?? null };
       })
-      .filter((r) => r.team && Number.isFinite(r.implied)) as Array<{ name: string; team: string; implied: number }>;
+      .filter(
+        (r: RunnerEntry): r is Required<RunnerEntry> =>
+          !!r.team && r.implied !== null && Number.isFinite(r.implied)
+      );
 
     if (mapped.length === 0) return null;
-    const sum = mapped.reduce((s, r) => s + r.implied, 0) || 1;
+    const sum = mapped.reduce((s, r) => s + (r.implied ?? 0), 0) || 1;
     const pct = (team: string) => {
       const entry = mapped.find((r) => strictTeamEquals(r.team, team) || fuzzyTeamMatch(r.team, team));
       if (!entry) return null;
-      return Math.max(0, Math.min(100, (entry.implied / sum) * 100));
+      return entry.implied == null ? null : Math.max(0, Math.min(100, (entry.implied / sum) * 100));
     };
 
     const homePct = pct(match.homeTeam);
@@ -1661,18 +1756,8 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     return { homePct: homePct * scale, awayPct: awayPct * scale };
   }, [match, matchWinnerMarket]);
 
-  const livePlayMarkets = useMemo(() => {
-    return {
-      nextBall: activeNextBallMarket,
-      nextOvers: activeNextOverMarkets,
-      nextWicket: activeNextWicketMarket,
-    };
-  }, [activeNextBallMarket, activeNextOverMarkets, activeNextWicketMarket]);
-
   const sessionMarkets = useMemo(() => {
-    return (instanceMarkets as InstanceMarket[]).filter(
-      (m) => (m.instance_type || (m as any).instanceType) === "OVER_RUNS"
-    );
+    return (instanceMarkets as InstanceMarket[]).filter((m) => (m.instance_type || (m as any).instanceType) === "OVER_RUNS");
   }, [instanceMarkets]);
 
   const onPickRunner = (runner: any, market: any, type: "BACK" | "LAY" = "BACK") => {
@@ -1681,15 +1766,24 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
       runnerId: runner.id,
       runnerName: runner.name || runner.runner_name,
       backOdds: Number(runner.backOdds ?? runner.back_odds ?? 0),
-      layOdds: Number.isFinite(Number(runner.layOdds ?? runner.lay_odds))
-        ? Number(runner.layOdds ?? runner.lay_odds)
-        : null,
+      layOdds: Number.isFinite(Number(runner.layOdds ?? runner.lay_odds)) ? Number(runner.layOdds ?? runner.lay_odds) : null,
       type,
     });
   };
-
   const handleWinnerBet = async () => {
     if (!selectedRunner || !match) return;
+
+    // 🚫 Hard block: if match is completed, do not allow bets
+    if (match.status === "FINISHED") {
+      toast({
+        title: "Betting closed",
+        description: "This match is completed. New bets are not allowed.",
+        variant: "destructive",
+      });
+      setSelectedRunner(null);
+      return;
+    }
+
     if (!currentUser) {
       toast({ title: "Please login", description: "Login to place a bet.", variant: "destructive" });
       return;
@@ -1701,10 +1795,7 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     }
 
     try {
-      const odds =
-        selectedRunner.type === "BACK"
-          ? selectedRunner.backOdds
-          : selectedRunner.layOdds ?? selectedRunner.backOdds;
+      const odds = selectedRunner.type === "BACK" ? selectedRunner.backOdds : selectedRunner.layOdds ?? selectedRunner.backOdds;
 
       await api.placeBet({
         matchId: match.id,
@@ -1738,6 +1829,19 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
   };
 
   const handleInstanceBet = async (market: InstanceMarket, outcome: InstanceOutcome) => {
+    if (placingQuick) return;
+    // 🚫 If match is finished, don't allow any instance bets
+    if (!match || match.status === "FINISHED") {
+      toast({
+        title: "Betting closed",
+        description: "This match is completed. Live plays are closed.",
+        variant: "destructive",
+      });
+      setSelectedOutcome(null);
+      setSelectedMarket(null);
+      return;
+    }
+
     if (!currentUser) {
       toast({ title: "Please login", description: "Login to place a quick play bet.", variant: "destructive" });
       return;
@@ -1749,6 +1853,7 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
     }
 
     try {
+      setPlacingQuick(true);
       const result = await api.placeInstanceBet({ marketId: market.id, outcomeId: outcome.id, stake: stakeNum });
 
       const newBet = (result as any)?.bet;
@@ -1774,6 +1879,7 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
 
       setSelectedOutcome(null);
       setSelectedMarket(null);
+      setBetAnchor(null);
 
       const { user } = await api.getCurrentUser();
       setCurrentUser({
@@ -1786,54 +1892,20 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
       });
     } catch (err: any) {
       toast({ title: "Bet failed", description: err?.message || "Unable to place bet", variant: "destructive" });
+    } finally {
+      setPlacingQuick(false);
     }
   };
+
 
   const winDisplay = winSplit || { homePct: 50, awayPct: 50 };
   const homeWinPct = Math.max(0, Math.min(100, winDisplay.homePct));
   const awayWinPct = Math.max(0, Math.min(100, winDisplay.awayPct));
 
-  const renderBattingNames = (strikerRuns: string, strikerBalls: string, nonStrikerRuns: string, nonStrikerBalls: string) => (
-    <div className="mt-0.5 text-[11px] text-white/85 text-center space-y-0.5">
-      <p className="truncate max-w-[140px]">
-        <span className="text-emerald-300">●</span> {lastKnownBatsRef.current.striker}
-        <span className="text-emerald-300"> *</span>{" "}
-        <span className="ml-1 font-mono tabular-nums text-[10px] text-white/65">
-          {strikerRuns}/{strikerBalls}
-        </span>
-      </p>
-      <p className="truncate max-w-[140px] text-white/75">
-        <span className="text-white/35">●</span> {lastKnownBatsRef.current.non}{" "}
-        <span className="ml-1 font-mono tabular-nums text-[10px] text-white/60">
-          {nonStrikerRuns}/{nonStrikerBalls}
-        </span>
-      </p>
-    </div>
-  );
-
-  const renderBowlingInfo = (teamName: string) => {
-    const isBatting = fuzzyTeamMatch(teamName, battingTeamResolved);
-    return (
-      <div className="mt-0.5 text-[11px] text-white/80 text-center space-y-0.5">
-        <p className="truncate max-w-[140px] text-white/70">{teamContextLine(teamName) || "—"}</p>
-        {!isBatting && (
-          <>
-            <p className="truncate max-w-[140px]">
-              <span className="text-white/55">Bowler:</span> <span className="text-white/90">{derived.bowler.name}</span>
-            </p>
-            <p className="truncate max-w-[140px] font-mono tabular-nums text-[10px] text-white/60">{derived.bowler.compact}</p>
-          </>
-        )}
-      </div>
-    );
-  };
-
   const strikerRuns = derived.striker.runs;
   const strikerBalls = derived.striker.balls;
   const nonStrikerRuns = derived.nonStriker.runs;
   const nonStrikerBalls = derived.nonStriker.balls;
-
-  const startSubLabel = match?.startTime ? formatMatchTime(match.startTime) : "";
 
   if (!match && isLoadingMatch) {
     return (
@@ -1853,458 +1925,611 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
       <AppShell hideHeader hideBottomNav fullBleed>
         <div className="text-center py-12">
           <p className="text-muted-foreground">Match not found</p>
-          <Link href="/">
-            <Button variant="outline" className="mt-4">
-              Back to Dashboard
-            </Button>
-          </Link>
+          <Button variant="outline" className="mt-4" onClick={() => (window.location.href = "/")}>
+            Back to Dashboard
+          </Button>
         </div>
       </AppShell>
     );
   }
 
-  return (
-    <AppShell hideHeader hideBottomNav fullBleed>
-      <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 pb-24">
-        <div className="max-w-5xl mx-auto px-3 sm:px-4 pt-0 space-y-2.5 sm:space-y-3">
-          {/* Hero card compact and decluttered */}
-          <Card className="relative mt-1 border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_18px_45px_rgba(0,0,0,0.65)]">
-            <Link href="/" className="absolute left-3 top-1 sm:top-2 z-10">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 px-3 rounded-full bg-white/5 border border-white/10 hover:bg-white/10"
-              >
-                <ArrowLeft className="h-4 w-4 text-white" />
-              </Button>
-            </Link>
-            {/* Small tournament tag centered at top */}
-            {(() => {
-              const t = match.tournament || match.competition || match.series || "";
-              const norm = String(t).toLowerCase();
-              const label = norm.includes("t20 world cup") ? "T20WC" : t || "";
-              return label ? (
-                <span className="absolute top-2 left-1/2 -translate-x-1/2 text-[10px] text-white/60 uppercase tracking-wide truncate max-w-[180px] text-center">
-                  {label}
-                </span>
-              ) : null;
-            })()}
-            <CardContent className="p-3 sm:p-4 pt-8 sm:pt-9 space-y-2.5">
-              {/* Top meta: venue left, time right */}
-              <div className="flex items-center justify-between gap-2 text-[11px] text-white/60">
-                <span className="truncate">{match.venue || "Venue TBA"}</span>
-                <span className="min-w-[96px] text-right text-white/50">{startSubLabel}</span>
-              </div>
+  const leagueLabel = match.tournament || match.competition || match.series || "League TBA";
+  const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
+  const matchShortDate = formatShortDayTime(match.startTime);
+  const needLine =
+    activeInning >= 2 && required ? `${required.runs} needed from ${required.balls} balls` : null;
 
-              {isLive ? (
-                <>
-                  <div className="grid grid-cols-3 gap-2 sm:gap-3 items-start">
-                    <div className="flex flex-col items-center">
-                      <TeamBadge name={match.homeTeam} banner={match.homeTeamBanner} />
-                      {isHomeBatting ? (
-                        <>
-                          <div className="mt-0.5 text-[10px] text-white/60">{teamContextLine(match.homeTeam)}</div>
-                          {renderBattingNames(strikerRuns, strikerBalls, nonStrikerRuns, nonStrikerBalls)}
-                        </>
-                      ) : (
-                        renderBowlingInfo(match.homeTeam)
-                      )}
-                    </div>
+  const latestSix = pulseResults.slice(-6);
+  const slots = Array.from({ length: 6 }, (_, idx) => latestSix[idx] ?? null);
+  const currentIndex = latestSix.length - 1;
 
-                    <div
-                      className={cn(
-                        "flex flex-col items-center justify-center rounded-2xl px-2.5 py-2.5 border border-white/10 bg-black/30",
-                        scorePulse && "ring-2 ring-emerald-400/60"
-                      )}
-                    >
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-white/55">Score</span>
-                      <div className="mt-1 flex items-center gap-2">
-                        <Badge className="bg-white/10 text-white/75 border-white/15 text-[10px] px-2 py-0.5 rounded-full">
-                          Inn {activeInning}
-                        </Badge>
-                        <p className="text-[22px] sm:text-3xl font-mono tabular-nums font-bold text-white leading-none">
-                          {String(totalScore)}
-                        </p>
-                      </div>
-                      <p className="mt-1 text-[11px] font-mono tabular-nums text-white/65">Over {overText}</p>
-                      {statusNote && (
-                        <div className="mt-1">
-                          <span className="inline-flex items-center rounded-full bg-amber-500/20 text-amber-100 border border-amber-400/40 px-2 py-0.5 text-[10px] font-semibold tracking-wide">
-                            {statusNote}
-                          </span>
-                        </div>
-                      )}
-                      {activeInning >= 2 && required && (
-                        <p className="mt-1 text-[10px] text-emerald-200/85 text-center leading-snug">
-                          {required.runs} req in {required.balls} balls
-                        </p>
-                      )}
-                    </div>
+  const circleClasses = (label?: string, isCurrent?: boolean) =>
+    cn(
+      "h-7 rounded-full flex items-center justify-center border border-[#E5E7EB] text-[10px] font-semibold leading-none",
+      label ? chipStyle(label) : "bg-[#F6F8FB] text-[#6C757D]",
+      isCurrent && "ring-2 ring-[#1ABC9C66]"
+    );
 
-                    <div className="flex flex-col items-center">
-                      <TeamBadge name={match.awayTeam} banner={match.awayTeamBanner} />
-                      {isAwayBatting ? (
-                        <>
-                          <div className="mt-0.5 text-[10px] text-white/60">{teamContextLine(match.awayTeam)}</div>
-                          {renderBattingNames(strikerRuns, strikerBalls, nonStrikerRuns, nonStrikerBalls)}
-                        </>
-                      ) : (
-                        renderBowlingInfo(match.awayTeam)
-                      )}
-                    </div>
-                  </div>
+  const ballTimeline = (
+    <>
+      <div className="flex items-center justify-between text-[11px] text-[#7A7F87]">
+        <span className="flex items-center gap-1">
+          <Activity className="h-3 w-3 text-[#1ABC9C]" />
+          This over
+        </span>
+        <span>{lastOverRuns !== null ? `Last over: ${lastOverRuns} runs` : `Runs: ${thisOverRuns}`}</span>
+      </div>
+      <div className="mt-1 grid grid-cols-6 gap-1">
+        {slots.map((slot, idx) => (
+          <div key={`ball-slot-${idx}`} className={circleClasses(slot?.label, idx === currentIndex)}>
+            {slot?.label || ""}
+          </div>
+        ))}
+      </div>
+    </>
+  );
 
-                  {/* Pulse row only */}
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-2">
-                    <div className="flex items-center justify-between text-[10px] text-white/60">
-                      <span className="flex items-center gap-1">
-                        <Activity className="h-3 w-3 text-emerald-300" />
-                        This over: {thisOverRuns} runs
-                      </span>
-                      <span className="text-white/45">Inn {activeInning}</span>
-                    </div>
-                    <div className="mt-1.5 flex items-center gap-1 overflow-x-auto pb-0.5">
-                      {pulse.map((b, idx) => (
-                        <div
-                          key={`${idx}-${b.label}-${b.subLabel ?? ""}`}
-                          className={cn(
-                            "shrink-0 rounded-full flex items-center justify-center border border-transparent transition-all",
-                            "h-6 w-6 text-[9px] sm:h-7 sm:w-7 sm:text-[10px]",
-                            b.kind === "UPCOMING" && "ring-2 ring-emerald-400/70 animate-pulse",
-                            b.emphasize && b.kind === "RESULT" && "ring-2 ring-white/25",
-                            chipStyle(b.label, !!b.muted)
-                          )}
-                          title={b.kind === "UPCOMING" ? "Upcoming ball" : `Ball result: ${b.label}`}
-                        >
-                          <div className="flex flex-col items-center justify-center leading-none">
-                            <span>{b.label}</span>
-                            {b.subLabel && <span className="text-[7px] mt-[-1px] opacity-90">{b.subLabel}</span>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="grid grid-cols-3 items-center">
-                  <div className="flex flex-col items-center">
-                    <TeamBadge name={match.homeTeam} banner={match.homeTeamBanner} />
-                  </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <p className="text-lg font-semibold text-emerald-300">{countdown || "Starting soon"}</p>
-                    {tossLine && <p className="text-[11px] text-white/70 text-center truncate">{tossLine}</p>}
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <TeamBadge name={match.awayTeam} banner={match.awayTeamBanner} />
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+  // ✅ make batsman score more visible (higher contrast + bolder numbers)
+ const playerBar = (
+  <div className="border-t border-[#E5E0D6] pt-1.5 mt-1.5">
+    <div className="flex items-start justify-between gap-3">
+      {/* Left: batsmen stacked */}
+      <div className="flex-[2] min-w-0">
+        <div className="flex flex-col gap-1">
+          {/* Striker */}
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-[12px] text-[#111827] truncate min-w-0 flex items-center gap-1">
+              <span className="text-[#27AE60]">●</span>
+              <span className="truncate">{lastKnownBatsRef.current.striker}</span>
+            </p>
+            <span className="shrink-0 font-mono tabular-nums font-semibold text-[#111827] text-[12px]">
+              {strikerRuns}/{strikerBalls}
+            </span>
+          </div>
 
-          {match.status === "UPCOMING" && squadsData && (squadsData.home || squadsData.away) && (
-            <Card className="border border-white/10 bg-white/[0.03]">
-              <CardContent className="p-3 sm:p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-white">Squads</p>
-                    <p className="text-[11px] text-white/55">Playing XI and bench (Roanuz)</p>
-                  </div>
-                  <Badge className="bg-white/10 border-white/20 text-[10px] px-2 py-0.5 text-white/70">Latest</Badge>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {[
-                    { side: "home", label: match.homeTeam, data: squadsData.home },
-                    { side: "away", label: match.awayTeam, data: squadsData.away },
-                  ].map(({ side, label, data }) => (
-                    <div key={side} className="rounded-2xl border border-white/10 bg-black/25 p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-[13px] font-semibold text-white truncate">{label}</p>
-                        <div className="text-[10px] text-white/50">Playing XI</div>
-                      </div>
-                      {data ? (
-                        <>
-                          <ul className="space-y-1.5">
-                            {data.playingXi.map((p, idx) => {
-                              const isCaptain = data.captain && p === data.captain;
-                              const isKeeper = data.keeper && p === data.keeper;
-                              return (
-                                <li key={`${side}-xi-${p}-${idx}`} className="flex items-center gap-2">
-                                  <span className="text-[11px] text-white/45 w-5 text-right">{idx + 1}.</span>
-                                  <span className="text-[12px] text-white/85 truncate flex-1">{p}</span>
-                                  <span className="flex items-center gap-1 text-[10px] text-emerald-200">
-                                    {isCaptain && <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 border border-emerald-400/40">C</span>}
-                                    {isKeeper && <span className="rounded-full bg-cyan-500/20 px-1.5 py-0.5 border border-cyan-400/40">WK</span>}
-                                  </span>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                          {data.bench.length > 0 && (
-                            <div className="pt-2 border-t border-white/10">
-                              <p className="text-[11px] text-white/55 mb-1">Bench</p>
-                              <div className="flex flex-wrap gap-1">
-                                {data.bench.map((p) => (
-                                  <span
-                                    key={`${side}-bench-${p}`}
-                                    className="text-[11px] text-white/75 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full"
-                                  >
-                                    {p}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <p className="text-[12px] text-white/55">Squad not available yet.</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Markets: Winner / Live Play / Session Play */}
-          <div className="mt-3 space-y-3">
-            <div className="sticky top-14 z-20 flex items-center justify-center">
-              <div className="inline-flex rounded-full border border-white/15 bg-white/5 p-1 gap-1">
-                {[
-                  { key: "winner", label: "Winner" },
-                  { key: "live", label: "Live Play" },
-                  { key: "session", label: "Session Play" },
-                ].map((t) => (
-                  <button
-                    key={t.key}
-                    className={cn(
-                      "px-3 py-1.5 text-[12px] rounded-full transition",
-                      activeTab === (t.key as any)
-                        ? "bg-emerald-500 text-white shadow-[0_8px_20px_rgba(16,185,129,0.35)]"
-                        : "text-white/70"
-                    )}
-                    onClick={() => setActiveTab(t.key as any)}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {activeTab === "winner" && (
-              <Card className="border border-white/10 bg-white/[0.03]">
-                <CardContent className="p-3 sm:p-4 space-y-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-base font-semibold text-white">Match Winner</p>
-                    <Badge className="text-[10px] px-2 py-0.5 bg-white/10 border-white/20 text-white/70">
-                      {(matchWinnerMarket as any)?.status || (matchWinnerMarket as any)?.market_status || "—"}
-                    </Badge>
-                  </div>
-
-                  {/* Win chances inline */}
-                  <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2">
-                    <div className="flex items-center justify-between text-[11px] text-white/75">
-                      <span className="truncate pr-2">{match.homeTeam}</span>
-                      <span className="text-white/45">Based on Match Winner odds</span>
-                      <span className="truncate pl-2 text-right">{match.awayTeam}</span>
-                    </div>
-                    <div className="mt-1.5 relative h-3 rounded-full bg-white/5 overflow-hidden">
-                      <div
-                        className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-400/80 via-emerald-300/70 to-cyan-400/70"
-                        style={{ width: `${homeWinPct}%` }}
-                      />
-                      <div
-                        className="absolute inset-y-0 right-0 bg-gradient-to-l from-pink-400/80 via-fuchsia-300/70 to-indigo-400/70"
-                        style={{ width: `${awayWinPct}%` }}
-                      />
-                      <div
-                        className="absolute -translate-x-1/2 top-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white/85 shadow-[0_0_0_3px_rgba(16,185,129,0.25)]"
-                        style={{ left: `${homeWinPct}%` }}
-                        title={`${match.homeTeam} win chance`}
-                      />
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[11px] font-mono tabular-nums text-white/80">
-                      <span>{homeWinPct.toFixed(1)}%</span>
-                      <span>{awayWinPct.toFixed(1)}%</span>
-                    </div>
-                  </div>
-
-                  {matchWinnerMarket ? (
-                    <div className="space-y-2">
-                      {(matchWinnerMarket.runners || []).map((r: any) => {
-                        const back = Number(r.backOdds ?? r.back_odds ?? 0);
-                        const lay = Number(r.layOdds ?? r.lay_odds ?? 0);
-                        const hasLay = lay > 1.01;
-                        return (
-                          <div
-                            key={r.id}
-                            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 flex items-center justify-between gap-3"
-                          >
-                            <div className="min-w-0">
-                              <div className="text-[13px] text-white font-semibold truncate">{r.name}</div>
-                              <div className="text-[11px] text-white/55">
-                                Back {back.toFixed(2)} • Lay {hasLay ? lay.toFixed(2) : "—"}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                size="sm"
-                                className="h-9 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-600"
-                                onClick={() => onPickRunner(r, matchWinnerMarket, "BACK")}
-                              >
-                                Back {back.toFixed(2)}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className={cn(
-                                  "h-9 px-3 rounded-lg border-amber-400/60 text-amber-200",
-                                  !hasLay && "opacity-40 cursor-not-allowed"
-                                )}
-                                disabled={!hasLay}
-                                onClick={() => hasLay && onPickRunner(r, matchWinnerMarket, "LAY")}
-                              >
-                                Lay {hasLay ? lay.toFixed(2) : "—"}
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-[12px] text-white/55">Match Winner market not available.</p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {activeTab === "winner" && tossMarket && (
-              <Card className="border border-white/10 bg-white/[0.03]">
-                <CardContent className="p-3 sm:p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-base font-semibold text-white">Toss</p>
-                    <Badge className="text-[10px] px-2 py-0.5 bg-white/10 border-white/20 text-white/70">
-                      {(tossMarket as any)?.status || (tossMarket as any)?.market_status || "—"}
-                    </Badge>
-                  </div>
-
-                  {((tossMarket.runners as any[]) || []).length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {tossMarket.runners.map((r: any) => {
-                        const back = Number(r.backOdds ?? r.back_odds ?? 1.9);
-                        const disabled =
-                          String((tossMarket as any)?.market_status || (tossMarket as any)?.status || "").toUpperCase() !==
-                          "OPEN";
-                        return (
-                          <div
-                            key={r.id}
-                            className="rounded-xl border border-white/10 bg-white/[0.03] p-3 flex items-center justify-between gap-2"
-                          >
-                            <div className="min-w-0">
-                              <p className="text-[13px] font-semibold text-white truncate">
-                                {r.name || r.runner_name}
-                              </p>
-                              <p className="text-[11px] text-white/55">Odds {back.toFixed(2)}</p>
-                            </div>
-                            <Button
-                              size="sm"
-                              className="h-9 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-600"
-                              disabled={disabled}
-                              onClick={() => onPickRunner(r, tossMarket, "BACK")}
-                            >
-                              Select
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-[12px] text-white/55">Toss market not available.</p>
-                  )}
-
-                  {String((tossMarket as any)?.market_status || (tossMarket as any)?.status || "").toUpperCase() ===
-                    "SETTLED" && (
-                    <p className="text-[12px] text-emerald-200">
-                      Toss won by {(tossMarket as any)?.winning_outcome || "—"}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {activeTab === "live" && (
-              <div className="space-y-2">
-                {livePlayMarkets.nextBall ? (
-                  <CompactMarketGrid
-                    market={livePlayMarkets.nextBall}
-                    title={nextBallLabel(livePlayMarkets.nextBall)}
-                    onPick={onPickOutcome}
-                    selectedOutcomeId={
-                      selectedMarket?.id === livePlayMarkets.nextBall.id ? selectedOutcome?.id : null
-                    }
-                    timeRemaining={timeRemaining}
-                    maxCells={6}
-                  />
-                ) : (
-                  <Card className="border border-white/10 bg-white/[0.02]">
-                    <CardContent className="p-3 text-[12px] text-white/55">No next-ball market right now.</CardContent>
-                  </Card>
-                )}
-
-                {livePlayMarkets.nextOvers && livePlayMarkets.nextOvers.length > 0 ? (
-                  livePlayMarkets.nextOvers.map((m) => (
-                    <CompactMarketGrid
-                      key={m.id}
-                      market={m}
-                      title={nextOverLabel(m)}
-                      onPick={onPickOutcome}
-                      selectedOutcomeId={selectedMarket?.id === m.id ? selectedOutcome?.id : null}
-                      timeRemaining={timeRemaining}
-                      maxCells={6}
-                    />
-                  ))
-                ) : null}
-
-                {livePlayMarkets.nextWicket && (
-                  <CompactMarketGrid
-                    market={livePlayMarkets.nextWicket}
-                    title={(livePlayMarkets.nextWicket as any).market_title || "Next wicket dismissal"}
-                    onPick={onPickOutcome}
-                    selectedOutcomeId={
-                      selectedMarket?.id === livePlayMarkets.nextWicket.id ? selectedOutcome?.id : null
-                    }
-                    timeRemaining={timeRemaining}
-                    maxCells={6}
-                  />
-                )}
-              </div>
-            )}
-
-            {activeTab === "session" && (
-              <div className="space-y-2">
-                {sessionMarkets.length === 0 && (
-                  <Card className="border border-white/10 bg-white/[0.02]">
-                    <CardContent className="p-3 text-[12px] text-white/55">No session markets available yet.</CardContent>
-                  </Card>
-                )}
-                {sessionMarkets.map((m) => (
-                  <CompactMarketGrid
-                    key={m.id}
-                    market={m}
-                    title={(m as any).market_title || (m as any).name || "Session market"}
-                    onPick={onPickOutcome}
-                    selectedOutcomeId={selectedMarket?.id === m.id ? selectedOutcome?.id : null}
-                    timeRemaining={timeRemaining}
-                    maxCells={6}
-                  />
-                ))}
-              </div>
-            )}
+          {/* Non-striker */}
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-[12px] text-[#111827] truncate min-w-0 flex items-center gap-1">
+              <span className="text-[#B0B7C3]">●</span>
+              <span className="truncate">{lastKnownBatsRef.current.non}</span>
+            </p>
+            <span className="shrink-0 font-mono tabular-nums font-semibold text-[#111827] text-[12px]">
+              {nonStrikerRuns}/{nonStrikerBalls}
+            </span>
           </div>
         </div>
       </div>
 
-      {/* ✅ stake sheet opens only on click; doesn’t eat page space */}
+      {/* Right: bowler */}
+      <div className="flex-1 min-w-0 text-right">
+        <p className="text-[12px] text-[#111827] truncate">
+          Bowling: {derived.bowler.name}
+        </p>
+        <p className="text-[11px] text-[#6B7280]">{derived.bowler.fig}</p>
+        <p className="text-[11px] text-[#6B7280]">
+          Economy {derived.bowler.econ || "—"}
+        </p>
+      </div>
+    </div>
+  </div>
+);
+
+  const renderRunnerRow = (r: any, market: any, bettingDisabled: boolean) => {
+    const back = Number(r.backOdds ?? r.back_odds ?? 0);
+    const lay = Number(r.layOdds ?? r.lay_odds ?? 0);
+    const hasLay = lay > 1.01;
+    const teamName = r.name || r.runner_name;
+    const lastTradedBack = Number.isFinite(back) ? back.toFixed(2) : "—";
+    const lastTradedLay = hasLay ? lay.toFixed(2) : "—";
+
+    const tileBase = "h-full w-full rounded-xl border border-[#E5E7EB] px-3 py-2 text-left transition";
+
+    return (
+      <div key={r.id} className="grid grid-cols-[1.4fr_1fr_1fr] items-stretch gap-2 rounded-xl bg-[#F6F8FB]">
+        <div className="min-w-0 flex flex-col justify-center">
+          <p className="text-[13px] font-semibold text-[#111827] truncate">{teamName}</p>
+          <p className="text-[11px] text-[#6C757D]">
+            Last traded: {lastTradedBack} / {lastTradedLay}
+          </p>
+        </div>
+        <button
+          className={cn(
+            tileBase,
+            ui.backBg,
+            ui.backText,
+            "hover:shadow-sm",
+            bettingDisabled && "opacity-60 cursor-not-allowed"
+          )}
+          disabled={bettingDisabled}
+          onClick={() => {
+            if (bettingDisabled) return;
+            onPickRunner(r, market, "BACK");
+          }}
+        >
+          <div className="text-[13px] font-semibold">{lastTradedBack}</div>
+          <div className="text-[11px] text-[#6C757D]">Back</div>
+        </button>
+        <button
+          className={cn(
+            tileBase,
+            ui.layBg,
+            ui.layText,
+            "hover:shadow-sm",
+            (!hasLay || bettingDisabled) && "opacity-60 cursor-not-allowed"
+          )}
+          disabled={bettingDisabled || !hasLay}
+          onClick={() => {
+            if (bettingDisabled || !hasLay) return;
+            onPickRunner(r, market, "LAY");
+          }}
+        >
+          <div className="text-[13px] font-semibold">{lastTradedLay}</div>
+          <div className="text-[11px] text-[#6C757D]">Lay</div>
+        </button>
+      </div>
+    );
+  };
+
+
+  // ✅ darker % text
+  const renderProbabilityBar = () => (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-[11px] text-[#0F172A] font-semibold">
+        <span className="truncate pr-2">{match.homeTeam} · {homeWinPct.toFixed(1)}%</span>
+        <span className="text-[10px] text-[#374151] font-medium">Implied win chance</span>
+        <span className="truncate pl-2 text-right">{awayWinPct.toFixed(1)}% · {match.awayTeam}</span>
+      </div>
+      <div className="relative h-2 rounded-full bg-[#D9DEE5] overflow-hidden">
+        <div className="absolute inset-y-0 left-0 bg-[#8FD1AE]" style={{ width: `${homeWinPct}%` }} />
+        <div className="absolute inset-y-0 right-0 bg-[#F2A7B3]" style={{ width: `${awayWinPct}%` }} />
+        <div
+          className="absolute -translate-x-1/2 top-1/2 -translate-y-1/2 h-4 w-4 rounded-full bg-white border border-[#9CA3AF]"
+          style={{ left: `${homeWinPct}%` }}
+        />
+      </div>
+    </div>
+  );
+
+  // ✅ simpler winner card (no extra random headings)
+  const renderMatchWinnerCard = () => {
+    if (!matchWinnerMarket) {
+      return (
+        <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+          <CardContent className="p-4">
+            <p className="text-[13px] text-[#6C757D]">Match Winner market not available.</p>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    const rawStatus =
+      (matchWinnerMarket as any)?.status || (matchWinnerMarket as any)?.market_status || "—";
+    const statusText = String(rawStatus).toUpperCase();
+
+    // 🔒 Betting disabled if match completed, or market is not OPEN
+    const bettingDisabled = isFinishedMatch || statusText !== "OPEN";
+
+    return (
+      <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex justify-end">
+            <span className="px-2 py-0.5 rounded-full border border-[#E5E7EB] text-[11px] text-[#6C757D]">
+              {isFinishedMatch ? "FINISHED" : statusText}
+            </span>
+          </div>
+
+          {isFinishedMatch && (
+            <p className="text-[11px] text-[#DC2626] mt-0.5">
+              Match completed · betting closed
+            </p>
+          )}
+
+          {renderProbabilityBar()}
+
+          <div className="grid gap-2">
+            {(matchWinnerMarket.runners || []).map((r: any) =>
+              renderRunnerRow(r, matchWinnerMarket, bettingDisabled),
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+
+  const renderTossCard = () => {
+    if (!tossMarket) return null;
+    const statusText = String((tossMarket as any)?.market_status || (tossMarket as any)?.status || "—").toUpperCase();
+    const disabled = statusText !== "OPEN";
+
+    return (
+      <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-base font-semibold text-[#111827]">Toss Winner</p>
+            <span className="px-2 py-0.5 rounded-full border border-[#E5E7EB] text-[11px] text-[#6C757D]">
+              {statusText}
+            </span>
+          </div>
+          {((tossMarket?.runners as any[]) || []).length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {tossMarket.runners.map((r: any) => {
+                const back = Number(r.backOdds ?? r.back_odds ?? 1.9);
+                return (
+                  <div
+                    key={r.id}
+                    className="rounded-xl border border-[#E5E7EB] bg-[#F6F8FB] p-3 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-[#111827] truncate">{r.name || r.runner_name}</p>
+                      <p className="text-[11px] text-[#6C757D]">Odds {back.toFixed(2)}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-9 px-3 rounded-lg bg-[#1ABC9C] text-white hover:bg-[#159b82]"
+                      disabled={disabled}
+                      onClick={() => onPickRunner(r, tossMarket, "BACK")}
+                    >
+                      Select
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-[12px] text-[#6C757D]">Toss market not available yet.</p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // ✅ next ball market uses SAME compact 2-row grid (like other compact markets)
+  const renderNextDeliveryMarketCompact = () => {
+    if (!activeNextBallMarket) {
+      return (
+        <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+          <CardContent className="p-3 text-[12px] text-[#6C757D]">No next-ball market right now.</CardContent>
+        </Card>
+      );
+    }
+
+    const over = toNum((activeNextBallMarket as any).ro_over_number ?? (activeNextBallMarket as any).over_number ?? 0, 0);
+    const ball = toNum((activeNextBallMarket as any).ro_ball_number ?? (activeNextBallMarket as any).ball_number ?? 1, 1);
+    return (
+      <CompactMarketGrid
+        market={activeNextBallMarket}
+        title={`Next Delivery Result • Over ${over} · Ball ${ball}`}
+        onPick={onPickOutcome}
+        selectedOutcomeId={selectedMarket?.id === activeNextBallMarket.id ? selectedOutcome?.id : null}
+        timeRemaining={timeRemaining}
+        maxCells={6}
+      />
+    );
+  };
+
+  const renderCompactMarket = (m: InstanceMarket, label: string) => (
+    <CompactMarketGrid
+      key={m.id}
+      market={m}
+      title={label}
+      onPick={onPickOutcome}
+      selectedOutcomeId={selectedMarket?.id === m.id ? selectedOutcome?.id : null}
+      timeRemaining={timeRemaining}
+      maxCells={6}
+    />
+  );
+
+  const renderSquadsCard = () => (
+    <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+      <CardContent className="p-3 sm:p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-[#111827]">Squads</p>
+            <p className="text-[11px] text-[#6C757D]">Playing XI and bench (Roanuz)</p>
+          </div>
+          <Badge className="bg-[#F6F8FB] border border-[#E5E7EB] text-[10px] px-2 py-0.5 text-[#6C757D]">Latest</Badge>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {[
+            { side: "home", label: match.homeTeam, data: squadsData?.home },
+            { side: "away", label: match.awayTeam, data: squadsData?.away },
+          ].map(({ side, label, data }) => (
+            <div key={side} className="rounded-2xl border border-[#E5E7EB] bg-[#F6F8FB] p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[13px] font-semibold text-[#111827] truncate">{label}</p>
+                <div className="text-[10px] text-[#6C757D]">Playing XI</div>
+              </div>
+              {data ? (
+                <>
+                  <ul className="space-y-1.5">
+                    {data.playingXi.map((p, idx) => {
+                      const isCaptain = data.captain && p === data.captain;
+                      const isKeeper = data.keeper && p === data.keeper;
+                      return (
+                        <li key={`${side}-xi-${p}-${idx}`} className="flex items-center gap-2">
+                          <span className="text-[11px] text-[#6C757D] w-5 text-right">{idx + 1}.</span>
+                          <span className="text-[12px] text-[#111827] truncate flex-1">{p}</span>
+                          <span className="flex items-center gap-1 text-[10px] text-[#1ABC9C]">
+                            {isCaptain && (
+                              <span className="rounded-full bg-[#E8F6F1] px-1.5 py-0.5 border border-[#1ABC9C33]">C</span>
+                            )}
+                            {isKeeper && (
+                              <span className="rounded-full bg-[#E8F6F1] px-1.5 py-0.5 border border-[#1ABC9C33]">WK</span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {data.bench.length > 0 && (
+                    <div className="pt-2 border-t border-[#E5E7EB]">
+                      <p className="text-[11px] text-[#6C757D] mb-1">Bench</p>
+                      <div className="flex flex-wrap gap-1">
+                        {data.bench.map((p) => (
+                          <span
+                            key={`${side}-bench-${p}`}
+                            className="text-[11px] text-[#111827] bg-[#F8F9FA] border border-[#E5E7EB] px-2 py-0.5 rounded-full"
+                          >
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-[12px] text-[#6C757D]">Squad not available yet.</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const renderSessionCard = (m: InstanceMarket) => {
+    const statusText = String((m as any).market_status || (m as any).status || "").toUpperCase();
+    const suspended = statusText === "SUSPENDED";
+    const settled = statusText === "SETTLED";
+    const disabled = suspended || settled;
+
+    return (
+      <Card key={m.id} className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+        <CardContent className="p-3 sm:p-4 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[14px] font-semibold text-[#111827] truncate">
+                {(m as any).market_title || (m as any).name || "Session market"}
+              </p>
+              <p className="text-[11px] text-[#6C757D]">
+                {(m as any).metadata?.description || (m as any).score_note || `Line: ${(m as any).line ?? (m as any).target ?? "—"}`}
+              </p>
+            </div>
+            <span
+              className={cn(
+                "px-2 py-0.5 rounded-full border text-[11px]",
+                suspended ? ui.suspendedBg : "bg-[#F6F8FB]",
+                "border-[#E5E7EB]",
+                suspended ? ui.suspendedText : ui.textMuted
+              )}
+            >
+              {settled ? "SETTLED" : suspended ? "SUSPENDED" : statusText || "OPEN"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {(m.outcomes || []).map((o) => {
+              const odds = Number(o.odds ?? 0).toFixed(2);
+              return (
+                <button
+                  key={o.id}
+                  disabled={disabled}
+                  onClick={() => onPickOutcome(m, o)}
+                  className={cn(
+                    "rounded-xl border border-[#E5E7EB] bg-[#F6F8FB] px-3 py-2 text-left transition hover:shadow-sm",
+                    selectedOutcome?.id === o.id && selectedMarket?.id === m.id && "bg-[#E8F6F1] ring-1 ring-[#1ABC9C]",
+                    disabled && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  <p className="text-[11px] text-[#6C757D] truncate">{o.name}</p>
+                  <p className="text-[15px] font-semibold text-[#111827]">{odds}</p>
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderSessionMarkets = () => {
+    if (sessionMarkets.length === 0) {
+      return (
+        <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+          <CardContent className="p-3 text-[12px] text-[#6C757D]">No session markets available yet.</CardContent>
+        </Card>
+      );
+    }
+
+    const groups: Record<string, InstanceMarket[]> = { CURRENT: [], UPCOMING: [], COMPLETED: [] };
+    sessionMarkets.forEach((m) => {
+      const status = String((m as any).market_status || (m as any).status || "").toUpperCase();
+      if (status === "SETTLED") groups.COMPLETED.push(m);
+      else if (status === "OPEN") groups.CURRENT.push(m);
+      else if (status === "SUSPENDED") groups.CURRENT.push(m);
+      else groups.UPCOMING.push(m);
+    });
+
+    const order = [
+      { key: "CURRENT", label: "CURRENT SESSIONS" },
+      { key: "UPCOMING", label: "UPCOMING SESSIONS" },
+      { key: "COMPLETED", label: "COMPLETED" },
+    ];
+
+    return (
+      <div className="space-y-2">
+        {order.map((g) =>
+          groups[g.key].length ? (
+            <div key={g.key} className="space-y-1.5">
+              <p className="text-[11px] text-[#6C757D] tracking-[0.05em]">{g.label}</p>
+              <div className="space-y-1.5">{groups[g.key].map((m) => renderSessionCard(m))}</div>
+            </div>
+          ) : null
+        )}
+      </div>
+    );
+  };
+
+  const tossLine = getTossLine(match, realtimeData, liveScore);
+  const centerLine = needLine || compactTossLine(tossLine) || tossLine || leagueLabel;
+  const inningsBreak = statusNote && /innings break/i.test(String(statusNote));
+
+  return (
+    <AppShell hideHeader hideBottomNav fullBleed>
+      <div className={cn("min-h-screen pb-24", ui.bg)}>
+        <div className="max-w-5xl mx-auto px-3 sm:px-4 pt-3 space-y-2">
+          <Card className={cn("rounded-2xl border px-3 sm:px-4 py-3", ui.card, ui.border, softShadow)}>
+            <CardContent className="p-0 space-y-2">
+              <div className="flex items-center gap-2 text-[11px] text-[#6C757D]">
+                <button
+                  type="button"
+                  onClick={() => (window.history.length > 1 ? window.history.back() : (window.location.href = "/"))}
+                  className="inline-flex items-center gap-1 rounded-full border border-[#E5E7EB] bg-white px-3 py-1 text-[12px] font-medium text-[#1F2937] hover:bg-[#F3F4F6] transition"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </button>
+
+                {/* Center: toss / chase info */}
+                <div className="flex-1 flex justify-center px-2 min-w-0">
+                  <span className="text-center max-w-full whitespace-normal break-words text-[#374151] leading-snug">
+                    {centerLine}
+                  </span>
+                </div>
+
+                {/* Right: live/status & innings break */}
+                <div className="flex items-center gap-2 justify-end min-w-[140px]">
+                  {inningsBreak && (
+                    <span className="px-2 py-0.5 rounded-full bg-[#FEF3C7] text-[#92400E] text-[11px]">
+                      Innings Break
+                    </span>
+                  )}
+                  {isLive ? (
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#1ABC9C33] text-[11px] font-medium text-[#1ABC9C]">
+                      <span className="h-2 w-2 rounded-full bg-[#1ABC9C] animate-pulse" />
+                      LIVE
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full border border-[#E5E7EB] text-[11px] font-medium text-[#374151] bg-[#F6F8FB]">
+                      {match.status}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-[#6B7280]">
+                <span className="hidden sm:inline">{matchTitle}</span>
+                {!isLive && <span className="ml-auto">{matchShortDate}</span>}
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <TeamBadge name={match.homeTeam} banner={match.homeTeamBanner} />
+              </div>
+
+                <div className="text-center min-w-[106px]">
+                  <p className="text-[20px] sm:text-[22px] font-semibold text-[#111827] font-mono tabular-nums leading-none">
+                    {String(totalScore)}
+                    </p>
+                  <p className="text-[11px] text-[#6B7280]">
+                    {isLive ? `Over ${overText}` : countdown || matchShortDate}
+                  </p>
+                </div>
+
+              <div className="flex items-center gap-2 min-w-0 justify-end">
+                  <TeamBadge name={match.awayTeam} banner={match.awayTeamBanner} />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-[11px] text-[#6B7280]">
+                {/* Left spacer (keeps center truly centered even when right text exists) */}
+                <div className="shrink-0 w-[52px]" />
+
+                {/* Center already handled above; keep this row for target/rrr only */}
+                <div className="flex-1 min-w-0 flex justify-center" />
+
+                {/* Right: target/rrr */}
+                <div className="shrink-0 text-right font-mono tabular-nums">
+                  {target ? `Target ${target}` : ""}
+                  {target && rrr ? " · " : ""}
+                  {rrr ? `RRR ${rrr}` : ""}
+                </div>
+              </div>
+
+              {isLive && playerBar}
+            </CardContent>
+          </Card>
+
+          {isLive && pulseResults.length > 0 && (
+            <Card className={cn("rounded-2xl border px-3 sm:px-4 py-2.5", ui.card, ui.border, softShadow)}>
+              <CardContent className="p-0">{ballTimeline}</CardContent>
+            </Card>
+          )}
+
+          {/* Tabs */}
+          <div className="mt-0.5">
+            <div className="flex w-full rounded-full border border-[#E5E7EB] bg-[#FDFBF6] p-0.5 text-[13px] overflow-hidden">
+              {[
+                { key: "winner" as const, label: "Winner" },
+                { key: "live" as const, label: "Live Play" },
+                { key: "session" as const, label: "Session" },
+              ].map((t) => {
+                const isActiveTab = activeTab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    className={cn(
+                      "flex-1 px-3 sm:px-4 py-1.5 rounded-full transition-colors text-center",
+                      isActiveTab ? "bg-[#1ABC9C] text-white shadow-sm" : "text-[#4B5563]"
+                    )}
+                    onClick={() => setActiveTab(t.key)}
+                  >
+                    {t.label}
+                    {t.key === "live" && isLive && (
+                      <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-white/80 align-middle" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Content */}
+          {activeTab === "live" && (
+            <div className="space-y-2.5">
+              {renderNextDeliveryMarketCompact()}
+              {activeNextOverMarkets.length > 0 && (
+                <div className="space-y-1.5">{activeNextOverMarkets.map((m) => renderCompactMarket(m, nextOverLabel(m)))}</div>
+              )}
+              {activeNextWicketMarket &&
+                renderCompactMarket(activeNextWicketMarket, (activeNextWicketMarket as any).market_title || "Next wicket dismissal")}
+            </div>
+          )}
+
+          {activeTab === "winner" && (
+            <div className="space-y-2.5">
+              {renderMatchWinnerCard()}
+              {tossMarket && renderTossCard()}
+              {match.status === "UPCOMING" && squadsData && (squadsData.home || squadsData.away) && renderSquadsCard()}
+            </div>
+          )}
+
+          {activeTab === "session" && <div className="space-y-2.5">{renderSessionMarkets()}</div>}
+        </div>
+      </div>
+
+      {/* Stake sheets */}
       <QuickBetSheet
         open={!!selectedMarket && !!selectedOutcome}
         market={selectedMarket}
@@ -2314,31 +2539,28 @@ const { data: instanceMarkets = [], refetch: refetchInstanceMarkets } = useQuery
         onClose={() => {
           setSelectedOutcome(null);
           setSelectedMarket(null);
+          setBetAnchor(null);
         }}
         onPlace={() => {
           if (selectedMarket && selectedOutcome) handleInstanceBet(selectedMarket, selectedOutcome);
         }}
+        anchor={betAnchor}
+        placing={placingQuick}
+        currencySymbol={currentUser?.currency || "₹"}
       />
 
       <PreMatchBetSheet
         open={!!selectedRunner}
         runner={
           selectedRunner
-            ? {
-                name: selectedRunner.runnerName,
-                backOdds: selectedRunner.backOdds,
-                layOdds: selectedRunner.layOdds,
-                type: selectedRunner.type,
-              }
+            ? { name: selectedRunner.runnerName, backOdds: selectedRunner.backOdds, layOdds: selectedRunner.layOdds, type: selectedRunner.type }
             : null
         }
         stake={winnerStake}
         setStake={setWinnerStake}
         onClose={() => setSelectedRunner(null)}
         onPlace={handleWinnerBet}
-        setType={(t) =>
-          setSelectedRunner((prev) => (prev ? { ...prev, type: t } : prev))
-        }
+        setType={(t) => setSelectedRunner((prev) => (prev ? { ...prev, type: t } : prev))}
       />
     </AppShell>
   );

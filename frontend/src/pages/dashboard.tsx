@@ -1,25 +1,38 @@
 import { AppShell } from "@/components/layout/AppShell";
-import { OddsCard } from "@/components/betting/OddsCard";
-import { MobileOddsCard } from "@/components/betting/MobileOddsCard";
+// Simplified odds display; full OddsCard not used here
 import { BetSlip } from "@/components/betting/BetSlip";
 import { MobileBetSlip } from "@/components/betting/MobileBetSlip";
 import type { Match, Runner } from "@/lib/store";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
 import { useStore } from "@/lib/store";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
-import { Filter } from "lucide-react";
+// Icons not needed after simplifying header
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
+const ivoryTheme = {
+  canvas: "bg-[#F7F5EF]",
+  card: "bg-[#FDFBF6]",
+  border: "border-[#E5E0D6]",
+  text: "text-[#1F2733]",
+  subtext: "text-[#7A7F87]",
+  backBg: "bg-[#ECFDF5]",
+  backText: "text-[#0B8A5F]",
+  layBg: "bg-[#FFF1F2]",
+  layText: "text-[#D92148]",
+  chipActiveBg: "bg-[#E8F1FF]",
+  chipActiveText: "text-[#1F2733]",
+  chipBorder: "border-[#D9D2C6]",
+  marine: "#2563EB",
+};
+
 export default function Dashboard() {
-  const { matches, setMatches } = useStore();
+  const { matches, setMatches, currentUser } = useStore();
   const [phaseFilter, setPhaseFilter] = useState<"all" | "live" | "upcoming">(
     "all"
   );
@@ -30,9 +43,16 @@ export default function Dashboard() {
     type: "BACK" | "LAY";
     odds: number;
   } | null>(null);
+  const [nowTick, setNowTick] = useState(Date.now());
 
   const isMobile = useIsMobile();
   const [, setLocation] = useLocation();
+
+  // global ticker for countdowns
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const {
     data: matchesData,
@@ -42,7 +62,14 @@ export default function Dashboard() {
     queryKey: ["live-matches"],
     queryFn: async () => {
       const result = await api.getCurrentCricketMatches();
-      return result.matches || [];
+      const now = Date.now();
+      const horizonMs = 450 * 60 * 60 * 1000; // 450 hours (~18.75 days)
+      return (result.matches || []).filter((m: Match) => {
+        if (!m.startTime) return true; // keep if missing time to avoid hiding unknowns
+        const ts = Date.parse(m.startTime);
+        if (Number.isNaN(ts)) return true;
+        return ts <= now + horizonMs;
+      });
     },
     refetchInterval: 20000,
     retry: 2,
@@ -66,11 +93,25 @@ export default function Dashboard() {
     if (Number.isNaN(start)) return "";
     const diffMs = start - Date.now();
     const diffMin = Math.round(diffMs / 60000);
-    if (diffMin <= 0) return "Starting soon";
-    if (diffMin < 60) return `Starts in ${diffMin}m`;
+    if (diffMin <= 0) return "Starting now";
+    if (diffMin < 60) return `${diffMin}m`;
     const hours = Math.floor(diffMin / 60);
     const minutes = diffMin % 60;
-    return `Starts in ${hours}h ${minutes}m`;
+    return `${hours}h ${minutes}m`;
+  }
+
+  function formatCountdownExact(dateStr: string | null | undefined) {
+    if (!dateStr) return "";
+    const start = new Date(dateStr).getTime();
+    if (Number.isNaN(start)) return "";
+    const diffMs = Math.max(0, start - nowTick);
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${hours.toString().padStart(2, "0")}:${minutes
+      .toString()
+      .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }
 
   function teamInitials(name: string) {
@@ -83,7 +124,7 @@ export default function Dashboard() {
   const dicebearFor = (name: string) =>
     `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(
       name || "team"
-    )}&backgroundColor=0f172a&fontWeight=700`;
+    )}&backgroundColor=2563eb&fontWeight=700`;
 
   function TeamBadge({
     name,
@@ -101,79 +142,40 @@ export default function Dashboard() {
     return (
       <div
         className={cn(
-          "flex items-center gap-2 min-w-0",
+          "flex items-center min-w-0",
           align === "right" && "justify-end"
         )}
       >
-        {align === "right" ? (
-          <>
-            <div className={cn("min-w-0 text-right")}>
-              <p className="text-[12px] font-semibold text-white/90 truncate">
-                {name}
-              </p>
-
-              {score ? (
-                <p className="mt-0.5 font-mono tabular-nums text-[15px] font-bold text-emerald-300 leading-none">
-                  {score}
-                </p>
-              ) : null}
-
-              {subline ? (
-                <p className="mt-0.5 text-[10px] text-white/55 truncate">
-                  {subline}
-                </p>
-              ) : null}
+        <div
+          className={cn(
+            "flex flex-col items-center gap-1 min-w-0 text-center",
+            align === "right" && "items-center text-center"
+          )}
+        >
+          {banner ? (
+            <img
+              src={banner}
+              alt={name}
+              className="h-8 w-11 rounded-sm object-contain border border-[#E2E8F0]"
+            />
+          ) : (
+            <div className="h-8 w-11 rounded-sm bg-[#E5E7EB] border border-[#E2E8F0] flex items-center justify-center text-[11px] font-semibold text-[#1A202C]">
+              {teamInitials(name)}
             </div>
+          )}
 
-            {banner || dicebearFor(name) ? (
-              <div className="h-9 w-9 rounded-full bg-white/5 border border-white/15 overflow-hidden flex items-center justify-center shrink-0">
-                <img
-                  src={banner || dicebearFor(name)}
-                  alt={name}
-                  className="h-full w-full object-contain p-1"
-                />
-              </div>
-            ) : (
-              <div className="h-9 w-9 rounded-full bg-white/5 border border-white/15 flex items-center justify-center text-[11px] font-semibold text-white shrink-0">
-                {teamInitials(name)}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            {banner || dicebearFor(name) ? (
-              <div className="h-9 w-9 rounded-full bg-white/5 border border-white/15 overflow-hidden flex items-center justify-center shrink-0">
-                <img
-                  src={banner || dicebearFor(name)}
-                  alt={name}
-                  className="h-full w-full object-contain p-1"
-                />
-              </div>
-            ) : (
-              <div className="h-9 w-9 rounded-full bg-white/5 border border-white/15 flex items-center justify-center text-[11px] font-semibold text-white shrink-0">
-                {teamInitials(name)}
-              </div>
-            )}
-
-            <div className="min-w-0">
-              <p className="text-[12px] font-semibold text-white/90 truncate">
-                {name}
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-[#1A202C] truncate">{name}</p>
+            {score ? (
+              <p className="font-mono tabular-nums text-[15px] font-bold text-[#1A202C] leading-none">
+                {score}
               </p>
-
-              {score ? (
-                <p className="mt-0.5 font-mono tabular-nums text-[15px] font-bold text-emerald-300 leading-none">
-                  {score}
-                </p>
-              ) : null}
-
-              {subline ? (
-                <p className="mt-0.5 text-[10px] text-white/55 truncate">
-                  {subline}
-                </p>
-              ) : null}
-            </div>
-          </>
-        )}
+            ) : null}
+            {subline ? (
+              <p className="text-[11px] text-[#718096] truncate">{subline}</p>
+            ) : null}
+          </div>
+        </div>
       </div>
     );
   }
@@ -384,283 +386,262 @@ export default function Dashboard() {
   const openMatch = (id: string) => setLocation(`/match/${id}`);
 
   return (
-    <AppShell>
-      <div className="grid grid-cols-12 gap-6 h-[calc(100vh-8rem)] bg-[radial-gradient(ellipse_at_top,_rgba(255,255,255,0.06),_rgba(0,0,0,0)_55%)] bg-neutral-950">
-        {/* Left: Matches */}
-        <div className="col-span-12 lg:col-span-9 flex flex-col gap-4 overflow-y-auto overflow-x-hidden pr-2 pb-20">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mt-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="relative inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                  <span className="inline-flex h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                  Live
-                </span>
-                <span className="text-xs text-emerald-300/80">
-                  Exchange Markets
-                </span>
+    <AppShell hideHeader>
+      <div className={cn("min-h-[calc(100vh-3rem)] -mx-3 md:-mx-6", ivoryTheme.canvas)}>
+        <div className="max-w-6xl mx-auto px-3 md:px-6 pt-3 pb-18 space-y-2.5">
+          {/* Command Center */}
+          <div
+            className={cn(
+              "rounded-2xl border shadow-sm px-3 py-2.5 space-y-1.25",
+              "bg-white",
+              ivoryTheme.border
+            )}
+          >
+            {/* Row 1: Brand */}
+            <div className="w-full flex justify-center">
+              <div className="text-2xl font-extrabold tracking-tight text-[#0F172A]">CricFun</div>
+            </div>
+
+            {/* Row 2: Filters + balance */}
+            <div className="w-full flex items-center justify-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                {(["all", "live", "upcoming"] as const).map((key) => {
+                  const active = phaseFilter === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setPhaseFilter(key)}
+                      className={cn(
+                        "px-3 py-1.5 rounded-full border text-sm font-medium transition",
+                        ivoryTheme.chipBorder,
+                        active
+                          ? `${ivoryTheme.chipActiveBg} ${ivoryTheme.chipActiveText} border-[#BEE3F8] shadow-sm`
+                          : `bg-[#F8FAFC] ${ivoryTheme.subtext} hover:bg-[#EDF2F7]`
+                      )}
+                    >
+                      {key === "all" ? "All" : key === "live" ? "Live" : "Upcoming"}
+                    </button>
+                  );
+                })}
               </div>
-              <h2 className="text-2xl sm:text-3xl font-heading font-bold text-white">
-                T20WC+IPL
-              </h2>
+
+              {currentUser && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#D9D2C6] bg-[#FDFBF6]">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1F2733" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 7h18v10H3z" />
+                    <path d="M16 12h.01" />
+                    <path d="M5 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
+                  </svg>
+                  <span className="font-mono text-sm font-semibold text-[#1F2733]">
+                    {currentUser.currency} {currentUser.balance.toLocaleString()}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Controls */}
-          <div className="flex flex-col gap-3 sticky top-0 z-20 bg-neutral-950/80 backdrop-blur-xl pt-3 pb-2 border-b border-white/5">
-            <div className="flex items-center gap-2">
-              <Badge
-                variant="outline"
-                className={`cursor-pointer whitespace-nowrap flex-shrink-0 px-3 py-1.5 rounded-full text-xs border ${
-                  phaseFilter === "all"
-                    ? "bg-white/10 text-white border-white/40"
-                    : "border-white/15 text-slate-100 hover:bg-white/5"
-                }`}
-                onClick={() => setPhaseFilter("all")}
-              >
-                All
-              </Badge>
-              <Badge
-                variant="outline"
-                className={`cursor-pointer whitespace-nowrap flex-shrink-0 px-3 py-1.5 rounded-full text-xs border ${
-                  phaseFilter === "live"
-                    ? "bg-emerald-500 text-emerald-950 border-emerald-400 shadow-sm"
-                    : "border-white/15 text-slate-100 hover:bg-white/5"
-                }`}
-                onClick={() => setPhaseFilter("live")}
-              >
-                Live
-              </Badge>
-              <Badge
-                variant="outline"
-                className={`cursor-pointer whitespace-nowrap flex-shrink-0 px-3 py-1.5 rounded-full text-xs border ${
-                  phaseFilter === "upcoming"
-                    ? "bg-amber-400 text-amber-950 border-amber-300 shadow-sm"
-                    : "border-white/15 text-slate-100 hover:bg-white/5"
-                }`}
-                onClick={() => setPhaseFilter("upcoming")}
-              >
-                Upcoming
-              </Badge>
-            </div>
-          </div>
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-12 lg:col-span-8 xl:col-span-9">
+              {/* Match grid */}
+              {isLoading ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-1">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="h-48 rounded-2xl border border-[#E2E8F0] bg-white animate-pulse shadow-sm"
+                    />
+                  ))}
+                </div>
+              ) : matches.length === 0 ? (
+                <div className="text-center py-12 text-[#718096]">
+                  No live or upcoming matches right now. Check back soon.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {matches.map((match) => {
+                    const status = (match.status || "").toUpperCase();
+                    const isLive = status === "LIVE";
+                    const isUpcoming = status !== "LIVE";
 
-          {/* Match grid */}
-          {isLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-              {[1, 2, 3, 4].map((i) => (
-                <div
-                  key={i}
-                  className="h-48 bg-white/[0.03] rounded-2xl animate-pulse border border-white/10"
-                />
-              ))}
-            </div>
-          ) : matches.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              No live or upcoming matches right now. Check back soon.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-              {matches.map((match) => {
-                const status = (match.status || "").toUpperCase();
-                const isLive = status === "LIVE";
-                const isUpcoming = status !== "LIVE";
+                    const battingSide = isLive ? resolveBattingSide(match) : null;
+                    const secondInnings = isLive
+                      ? (match.currentInning ?? 1) >= 2 || isSecondInnings(match)
+                      : false;
+                    const tossLine = getTossLine(match);
 
-                // Determine batting side
-                const battingSide = isLive ? resolveBattingSide(match) : null;
-                const secondInnings = isLive
-                  ? (match.currentInning ?? 1) >= 2 || isSecondInnings(match)
-                  : false;
-                const tossLine = getTossLine(match);
+                    const parsedHome = parseTeamScore(match.scoreDetails, match.homeTeam);
+                    const parsedAway = parseTeamScore(match.scoreDetails, match.awayTeam);
 
-              const parsedHome = parseTeamScore(match.scoreDetails, match.homeTeam);
-              const parsedAway = parseTeamScore(match.scoreDetails, match.awayTeam);
+                    const homeScore =
+                      parsedHome?.score ||
+                      (isLive && match.runs != null && battingSide === "home"
+                        ? `${match.runs}/${match.wickets ?? 0}`
+                        : null);
+                    const awayScore =
+                      parsedAway?.score ||
+                      (isLive && match.runs != null && battingSide === "away"
+                        ? `${match.runs}/${match.wickets ?? 0}`
+                        : null);
 
-              const homeScore = parsedHome?.score || (isLive && match.runs != null && battingSide === "home"
-                ? `${match.runs}/${match.wickets ?? 0}`
-                : null);
-              const awayScore = parsedAway?.score || (isLive && match.runs != null && battingSide === "away"
-                ? `${match.runs}/${match.wickets ?? 0}`
-                : null);
+                    let homeSub =
+                      parsedHome?.overs ||
+                      (match.status === "LIVE" && battingSide === "home" && match.overs != null
+                        ? `${match.overs} ov`
+                        : null);
+                    let awaySub =
+                      parsedAway?.overs ||
+                      (match.status === "LIVE" && battingSide === "away" && match.overs != null
+                        ? `${match.overs} ov`
+                        : null);
 
-              let homeSub = parsedHome?.overs || (match.status === "LIVE" && battingSide === "home" && match.overs != null
-                ? `${match.overs} ov`
-                : null);
-              let awaySub = parsedAway?.overs || (match.status === "LIVE" && battingSide === "away" && match.overs != null
-                ? `${match.overs} ov`
-                : null);
+                    const statusPill = isLive ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#DCFCE7] text-[#15803D] px-2 py-[3px] text-[11px] font-semibold border border-[#BBF7D0]">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#15803D] animate-pulse" />
+                        LIVE
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#FEF9C3] text-[#B45309] px-2 py-[3px] text-[11px] font-semibold border border-[#FDE68A]">
+                        UPCOMING
+                      </span>
+                    );
 
-                let centerLine: string | null = null;
-                if (isLive) {
-                  if (secondInnings) {
-                    centerLine =
-                      match.targetRuns != null
-                        ? `Target ${match.targetRuns}`
-                        : null;
-                  } else {
-                    const decision =
-                      match.toss_decision ||
-                      match.elected_to ||
-                      match.tossDecision ||
-                      null;
-                    const winner =
-                      match.toss_won_by ||
-                      null;
+                    const matchWinnerMarket =
+                      (match.markets || []).find((m: any) =>
+                        String(m.market_name || m.name || "")
+                          .toLowerCase()
+                          .includes("match winner")
+                      ) || null;
 
-                    if (winner && decision) {
-                      centerLine = `${winner} opted to ${decision}`;
-                    } else {
-                      centerLine = getTossLine(match);
-                    }
-                  }
-                } else if (tossLine) {
-                  centerLine = tossLine;
-                }
+                    const runners = matchWinnerMarket ? (matchWinnerMarket.runners || []).slice(0, 2) : [];
+                    const countdownExact = formatCountdownExact(match.startTime);
 
-                return (
-                  <div
-                    key={match.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openMatch(match.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") openMatch(match.id);
-                    }}
-                    className={cn(
-                      "rounded-2xl border border-white/10 bg-white/[0.035] backdrop-blur-xl p-3",
-                      "shadow-[0_14px_40px_rgba(0,0,0,0.45)] hover:border-white/20 transition-colors",
-                      "cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
-                    )}
-                  >
-                    {/* Slim meta row */}
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="min-w-0">
-                        <div className="text-[10px] uppercase tracking-[0.22em] text-white/55 truncate">
-                          {match.league || "Cricket"}
-                        </div>
-                        <div className="text-[11px] text-white/40 truncate">
-                          {match.venue || "Venue TBA"}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-end shrink-0">
-                        <div className="flex items-center gap-2">
-                          {isLive && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-[2px] text-[10px] font-semibold text-red-300">
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                              LIVE
+                    return (
+                      <div
+                        key={match.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openMatch(match.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") openMatch(match.id);
+                        }}
+                        className={cn(
+                          "rounded-2xl border border-[#D7DDE5] bg-white p-2.5 shadow-sm hover:shadow-md transition",
+                          "cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#2563EB33]",
+                          "flex flex-col gap-2"
+                        )}
+                      >
+                        <div className="flex items-start gap-2 pb-1.5 border-b border-[#E2E8F0]">
+                          <div className="min-w-0">
+                            <div className="text-[11px] uppercase tracking-[0.16em] text-[#475569] truncate">
+                              {match.league || "Cricket"}
+                            </div>
+                            <div className="text-[12px] text-[#1F2733] truncate">
+                              {match.venue || "Venue TBA"}
+                            </div>
+                          </div>
+                          <div className="flex-1" />
+                          <div className="shrink-0 flex flex-col items-end gap-1">
+                            <div className="shrink-0">{statusPill}</div>
+                            <span className="text-[11px] text-[#475569] font-mono tabular-nums">
+                              {formatMatchTime(match.startTime)}
                             </span>
-                          )}
-                          {isUpcoming && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-[2px] text-[10px] font-semibold text-amber-200">
-                              UPCOMING
-                            </span>
-                          )}
+                          </div>
                         </div>
 
-                        <div className="mt-1 text-[11px] font-mono tabular-nums text-emerald-300/90">
-                          {formatMatchTime(match.startTime)}
+                        <div className="pb-1.5 border-b border-[#E2E8F0]">
+                          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+                            <TeamBadge
+                              name={match.homeTeam}
+                              banner={match.homeTeamBanner}
+                              score={isLive ? homeScore : null}
+                              subline={homeSub}
+                              align="left"
+                            />
+                            <div className="flex flex-col items-center justify-center text-center min-w-0">
+                              {!isLive && countdownExact && (
+                                <span className="text-[11px] font-mono tabular-nums text-[#475569]">
+                                  {countdownExact}
+                                </span>
+                              )}
+                              {isLive && (
+                                <span className="text-[11px] font-medium text-[#15803D]">Live</span>
+                              )}
+                            </div>
+                            <TeamBadge
+                              name={match.awayTeam}
+                              banner={match.awayTeamBanner}
+                              score={isLive ? awayScore : null}
+                              subline={awaySub}
+                              align="right"
+                            />
+                          </div>
                         </div>
 
-                        {isUpcoming && (
-                          <div className="text-[10px] text-amber-200/70">
-                            {formatTimeToStart(match.startTime)}
+                        {/* Simple odds for Match Winner only */}
+                        {runners.length > 0 && (
+                          <div className="pt-1" onClick={(e) => e.stopPropagation()}>
+                            <div className="grid grid-cols-2 gap-1.25">
+                              {runners.map((r: any, idx: number) => {
+                                const back = Number(r.backOdds ?? r.back_odds ?? 0).toFixed(2);
+                                const lay = Number(r.layOdds ?? r.lay_odds ?? 0).toFixed(2);
+                                return (
+                                  <div key={r.id || idx} className="space-y-1">
+                                    <div className="grid grid-cols-2 gap-1">
+                                      <button
+                                        className={cn(
+                                          "rounded-md border border-[#34D399] bg-[#ECFDF3] py-2 text-center text-[13px] font-semibold text-[#065F46]",
+                                          "hover:shadow-sm transition"
+                                        )}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleBetSelect(match, r, "BACK", Number(back));
+                                        }}
+                                      >
+                                        Back {back}
+                                      </button>
+                                      <button
+                                        className={cn(
+                                          "rounded-md border border-[#FECACA] bg-[#FEF2F2] py-2 text-center text-[13px] font-semibold text-[#991B1B]",
+                                          "hover:shadow-sm transition"
+                                        )}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleBetSelect(match, r, "LAY", Number(lay));
+                                        }}
+                                      >
+                                        Lay {lay}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>
-                    </div>
-
-                    {/* Teams + score + overs (single source) */}
-                    <div className="mb-2 rounded-2xl border border-white/10 bg-white/[0.02] px-3 py-2">
-                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                        <TeamBadge
-                          name={match.homeTeam}
-                          banner={match.homeTeamBanner}
-                          score={isLive ? homeScore : null}
-                          subline={homeSub}
-                          align="left"
-                        />
-
-                        <div className="flex flex-col items-center justify-center text-center min-w-0">
-                          <span className="text-[10px] uppercase tracking-[0.2em] text-white/55">
-                            VS
-                          </span>
-
-                          {centerLine ? (
-                            <span className="mt-1 text-[10px] text-white/65 max-w-[160px] truncate">
-                              {centerLine}
-                            </span>
-                          ) : (
-                            <span className="mt-1 text-[10px] text-white/35">
-                              {isLive ? "Live" : "—"}
-                            </span>
-                          )}
-                        </div>
-
-                        <TeamBadge
-                          name={match.awayTeam}
-                          banner={match.awayTeamBanner}
-                          score={isLive ? awayScore : null}
-                          subline={awaySub}
-                          align="right"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Odds hero (embedded so it doesn't duplicate teams/score/overs) */}
-                    <div onClick={(e) => e.stopPropagation()}>
-                      <div className="hidden md:block">
-                        <OddsCard
-                          matchId={match.id}
-                          onBetSelect={handleBetSelect}
-                          embedded
-                        />
-                      </div>
-                      <div className="md:hidden">
-                        <MobileOddsCard
-                          matchId={match.id}
-                          onBetSelect={handleBetSelect}
-                          embedded
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Right side: Bet slip */}
-        <div className="hidden lg:block col-span-3">
-          <Tabs defaultValue="bets" className="w-full">
-            <TabsList className="w-full">
-              <TabsTrigger value="bets" className="flex-1">
-                Bet Slip
-              </TabsTrigger>
-              <TabsTrigger value="filter" className="flex-1">
-                <Filter className="h-4 w-4" />
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="bets" className="mt-4">
-              <BetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} />
-            </TabsContent>
-            <TabsContent value="filter" className="mt-4">
-              <div className="p-4 rounded-xl border bg-muted/40">
-                <p className="text-sm text-muted-foreground">Filters coming soon</p>
-              </div>
-            </TabsContent>
-          </Tabs>
+            {/* Right side: Bet slip removed; using floating slip below */}
+          </div>
         </div>
       </div>
 
+      {!isMobile && selectedBet && (
+        <div className="fixed bottom-6 right-6 z-50 w-[360px]">
+          <BetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} variant="compact" />
+        </div>
+      )}
+
       {/* Mobile bet slip drawer */}
-      <Sheet
-        open={!!selectedBet && isMobile}
-        onOpenChange={(open) => !open && setSelectedBet(null)}
-      >
-        <SheetContent side="bottom" className="h-[85vh] rounded-t-3xl p-0">
-          <MobileBetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} />
+      <Sheet open={!!selectedBet && isMobile} onOpenChange={(open) => !open && setSelectedBet(null)}>
+        <SheetContent side="bottom" className="rounded-t-3xl p-0 h-auto pb-6">
+          <div className="p-3">
+            <MobileBetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} />
+          </div>
         </SheetContent>
       </Sheet>
     </AppShell>

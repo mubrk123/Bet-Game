@@ -15,9 +15,10 @@ type BetSlipProps = {
     odds: number;
   } | null;
   onClear: () => void;
+  variant?: "default" | "compact";
 };
 
-export function BetSlip({ selectedBet, onClear }: BetSlipProps) {
+export function BetSlip({ selectedBet, onClear, variant = "default" }: BetSlipProps) {
   const { toast } = useToast();
   const { currentUser, setCurrentUser } = useStore();
   const [stake, setStake] = useState("100");
@@ -70,32 +71,95 @@ export function BetSlip({ selectedBet, onClear }: BetSlipProps) {
     }
   };
 
+  const isCompact = variant === "compact";
+
+  if (isCompact) {
+    const quickChips = [100, 250, 500];
+    return (
+      <div className="rounded-2xl border border-[#E5E0D6] bg-[#FDFBF6] text-[#1F2733] shadow-xl w-full max-w-sm p-3 space-y-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold truncate">{selectedBet.runner.name}</p>
+            <div className="mt-1 flex items-center gap-2 text-[11px]">
+              <span className="px-2 py-[3px] rounded-full bg-[#ECFDF5] text-[#0B8A5F] border border-[#C1F0D6]">
+                {selectedBet.type} {selectedBet.odds.toFixed(2)}
+              </span>
+              <span className="px-2 py-[3px] rounded-full bg-[#F7F5EF] text-[#4B5563] border border-[#E5E0D6]">
+                {selectedBet.match.markets[0].name}
+              </span>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" className="text-[#7A7F87] hover:text-[#1F2733]" onClick={onClear}>
+            ×
+          </Button>
+        </div>
+
+        <div className="space-y-2">
+          <Input
+            type="number"
+            value={stake}
+            onChange={(e) => setStake(e.target.value)}
+            className="bg-white border-[#E5E0D6] text-[#1F2733]"
+            data-testid="input-stake"
+          />
+          <div className="flex gap-2">
+            {quickChips.map((amt) => (
+              <Button
+                key={amt}
+                variant="outline"
+                size="sm"
+                className="border-[#E5E0D6] text-[#1F2733] bg-white"
+                onClick={() => setStake(String(amt))}
+              >
+                ₹{amt}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-sm text-[#4B5563]">
+          <span>Potential {selectedBet.type === "BACK" ? "Win" : "Liability"}</span>
+          <span className="font-bold text-[#0EA5E9]">₹{potentialProfit}</span>
+        </div>
+
+        <Button
+          className="w-full bg-[#14B8A6] hover:bg-[#0EA5E9] text-white font-semibold"
+          onClick={placeBet}
+          disabled={isPlacing}
+          data-testid="button-place-bet"
+        >
+          {isPlacing ? "Placing..." : `Place ${selectedBet.type}`}
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <Card className="p-4 bg-card/90 border-primary/20 shadow-xl">
+    <Card className="p-4 bg-[#FDFBF6] border-[#E5E0D6] shadow-sm">
       <div className="flex justify-between items-center mb-2">
         <div>
-          <p className="text-xs text-muted-foreground uppercase">{selectedBet.match.league}</p>
-          <p className="text-sm font-bold">
+          <p className="text-xs text-[#7A7F87] uppercase">{selectedBet.match.league}</p>
+          <p className="text-sm font-bold text-[#1F2733]">
             {selectedBet.match.homeTeam} vs {selectedBet.match.awayTeam}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClear}>
+        <Button variant="ghost" size="sm" className="text-[#7A7F87]" onClick={onClear}>
           Clear
         </Button>
       </div>
 
-      <div className="p-3 rounded-lg bg-muted/40 border border-border/50 mb-3">
+      <div className="p-3 rounded-lg bg-[#F7F5EF] border border-[#E5E0D6] mb-3">
         <div className="flex justify-between text-sm mb-1">
-          <span className="font-medium">{selectedBet.runner.name}</span>
-          <span className="px-2 py-0.5 rounded text-xs font-bold bg-primary/10 text-primary">
+          <span className="font-medium text-[#1F2733]">{selectedBet.runner.name}</span>
+          <span className="px-2 py-0.5 rounded text-xs font-bold bg-[#E8F1FF] text-[#2563EB]">
             {selectedBet.type} @ {selectedBet.odds.toFixed(2)}
           </span>
         </div>
-        <p className="text-xs text-muted-foreground">Market: {selectedBet.match.markets[0].name}</p>
+        <p className="text-xs text-[#7A7F87]">Market: {selectedBet.match.markets[0].name}</p>
       </div>
 
       <div className="space-y-2">
-        <label className="text-xs text-muted-foreground">Stake</label>
+        <label className="text-xs text-[#7A7F87]">Stake</label>
         <Input
           type="number"
           value={stake}
@@ -108,6 +172,7 @@ export function BetSlip({ selectedBet, onClear }: BetSlipProps) {
               key={amt}
               variant="outline"
               size="sm"
+              className="border-[#E5E0D6] text-[#1F2733]"
               onClick={() => setStake(String(amt))}
               data-testid={`quick-${amt}`}
             >
@@ -115,9 +180,9 @@ export function BetSlip({ selectedBet, onClear }: BetSlipProps) {
             </Button>
           ))}
         </div>
-        <div className="flex justify-between text-sm text-muted-foreground">
+        <div className="flex justify-between text-sm text-[#7A7F87]">
           <span>Potential {selectedBet.type === "BACK" ? "Win" : "Liability"}</span>
-          <span className="font-bold text-primary">₹{potentialProfit}</span>
+          <span className="font-bold text-[#2563EB]">₹{potentialProfit}</span>
         </div>
         <Button
           className="w-full"

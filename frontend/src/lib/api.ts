@@ -161,16 +161,30 @@ updated_at,created_at`;
 ro_total_runs,ro_batsman_runs,ro_extras_runs,ro_is_wicket,ro_wicket_kind,ro_extra_type,
 ro_batsman_key,ro_batsman_name,ro_bowler_key,ro_bowler_name,ro_commentary,created_at`;
 
-
-// ============================================================================
-// MAPPERS (PURE DB → UI SHAPE)
-// IMPORTANT: This removes "home/away" semantics.
-// Your UI/store Match type should be updated accordingly.
-// ============================================================================
-
 // Convert raw match row into UI-friendly shape expected by the store/pages.
 // No derived math; just copy DB fields.
 function mapToUiMatch(row: any): Match {
+  // --- Toss (convert a/b -> team name for UI) ---
+  const rawTossWinner = row.toss_won_by || row.ro_toss_won_by || null;
+
+  let tossWinnerUi: string | null = rawTossWinner;
+
+  if (rawTossWinner) {
+    const v = String(rawTossWinner).toLowerCase();
+
+    // Roanuz insights commonly uses a/b for teams
+    if (v === "a") tossWinnerUi = row.ro_team_home_name || null;
+    else if (v === "b") tossWinnerUi = row.ro_team_away_name || null;
+
+    // Sometimes toss winner may be a team_key (zim/oma etc.)
+    else if (v === String(row.ro_team_home_key || "").toLowerCase())
+      tossWinnerUi = row.ro_team_home_name || null;
+    else if (v === String(row.ro_team_away_key || "").toLowerCase())
+      tossWinnerUi = row.ro_team_away_name || null;
+  }
+
+  const rawTossDecision = row.elected_to || row.ro_toss_decision || null;
+
   return {
     id: row.id,
     sport: row.sport || "cricket",
@@ -206,10 +220,11 @@ function mapToUiMatch(row: any): Match {
         ? Math.round((Number(row.ro_score_overs) % 1) * 10)
         : row.current_ball ?? null,
 
-    toss_won_by: row.toss_won_by || row.ro_toss_won_by || null,
-    elected_to: row.elected_to || row.ro_toss_decision || null,
-    toss_decision: row.elected_to || row.ro_toss_decision || null,
-    tossDecision: row.elected_to || row.ro_toss_decision || null,
+    // ✅ Toss fields fixed for UI display
+    toss_won_by: tossWinnerUi,
+    elected_to: rawTossDecision,
+    toss_decision: rawTossDecision,
+    tossDecision: rawTossDecision,
     toss_recorded_at: row.toss_recorded_at || null,
 
     updatedAt: row.updated_at,
@@ -218,6 +233,7 @@ function mapToUiMatch(row: any): Match {
     markets: (row.markets || []).map(mapToUiMarket),
   };
 }
+
 
 
 function mapToUiMarket(market: any): Market {

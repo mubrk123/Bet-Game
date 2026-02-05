@@ -18,57 +18,8 @@ const ROANUZ_API_KEY = Deno.env.get("ROANUZ_API_KEY") ||
   Deno.env.get("ROANUZ_APIKEY") ||
   "";
 
-// ======================= MATCH STATUS MAP =======================
-function computeDisplayStatus(
-  roStatus?: string | null,
-  matchState?: string | null,
-  playStatus?: string | null,
-  prevDisplay?: "UPCOMING" | "LIVE" | "FINISHED" | null,
-): "UPCOMING" | "LIVE" | "FINISHED" {
-  const val = (roStatus || matchState || playStatus || "").toLowerCase().trim();
-
-  const isFinished =
-    val.includes("complete") ||
-    val.includes("completed") ||
-    val.includes("finished") ||
-    val.includes("result") ||
-    val.includes("abandoned") ||
-    val.includes("no result") ||
-    val.includes("cancel") ||
-    val.includes("stumps day 5") ||
-    val.includes("draw");
-
-  if (isFinished) return "FINISHED";
-
-  const liveHints = [
-    "live",
-    "innings",
-    "in-progress",
-    "in progress",
-    "running",
-    "break",
-    "drinks",
-    "rain",
-    "bad light",
-    "delayed",
-    "suspended",
-    "stumps",
-    "tea",
-    "lunch",
-    "review",
-    "super over",
-    "superover",
-  ];
-  if (liveHints.some((h) => val.includes(h))) return "LIVE";
-
-  // Sticky-live: if we were live and nothing explicitly says we're finished, stay live.
-  if (prevDisplay === "LIVE") return "LIVE";
-
-  return "UPCOMING";
-}
-
 function isFinishedStatus(val?: string | null) {
-  const v = String(val || "").toLowerCase();
+  const v = String(val || "").toLowerCase().trim();
   return (
     v.includes("complete") ||
     v.includes("completed") ||
@@ -81,6 +32,60 @@ function isFinishedStatus(val?: string | null) {
     v.includes("draw")
   );
 }
+
+function computeDisplayStatus(
+  roStatus?: string | null,
+  _matchState?: string | null, // ignored on purpose (garbage/inconsistent)
+  _playStatus?: string | null, // ignored on purpose
+  prevDisplay?: "UPCOMING" | "LIVE" | "FINISHED" | null,
+): "UPCOMING" | "LIVE" | "FINISHED" {
+  const raw = roStatus || "";
+  const val = raw.toLowerCase().trim();
+
+  // 1) Terminal states: once finished, always FINISHED
+  if (isFinishedStatus(raw)) {
+    return "FINISHED";
+  }
+
+  // 2) Explicit "live-ish" statuses from ro_status
+  //    These should ALWAYS appear as LIVE, even if they come first.
+  const liveHints = [
+    "started",        // 👈 THIS was missing earlier
+    "live",
+    "in-progress",
+    "in progress",
+    "running",
+    "innings",
+    "break",
+    "drinks",
+    "rain",
+    "rain stopped play",
+    "bad light",
+    "delayed",
+    "suspended",
+    "stumps",
+    "tea",
+    "lunch",
+    "review",
+    "super over",
+    "superover",
+  ];
+
+  if (liveHints.some((h) => val.includes(h))) {
+    return "LIVE";
+  }
+
+  // 3) Sticky-live: if we were already LIVE and ro_status is some weird
+  //    mid-state that isn't clearly finished or upcoming, stay LIVE
+  if (prevDisplay === "LIVE") {
+    return "LIVE";
+  }
+
+  // 4) Everything else is treated as UPCOMING
+  //    (scheduled, not started, toss, lineups, etc.)
+  return "UPCOMING";
+}
+
 
 // ======================= ROANUZ TOKEN CACHE =======================
 let _tokenCache: { token: string; exp: number } | null = null;
@@ -153,10 +158,12 @@ async function fetchRoanuzPlayerProfile(roPlayerKey: string): Promise<{ name: st
   const teamKey = player?.team_key || player?.team || null;
   return { name: name ? String(name) : null, teamKey: teamKey ? String(teamKey) : null };
 }
-
-// Extract players array from a match snapshot (supports multiple shapes)
-function extractPlayersFromSnapshot(snapshot: any): Array<{ key: string; name: string | null; teamKey: string | null }> {
+function extractPlayersFromSnapshot(
+  snapshot: any,
+): Array<{ key: string; name: string | null; teamKey: string | null }> {
   const buckets: any[] = [];
+
+  // Collect all possible player containers
   const candidates = [
     snapshot?.players,
     snapshot?.team_players,
@@ -169,32 +176,69 @@ function extractPlayersFromSnapshot(snapshot: any): Array<{ key: string; name: s
   ].filter(Boolean);
 
   for (const node of candidates) {
-    if (Array.isArray(node)) buckets.push(...node);
-    else if (node && typeof node === "object") {
+    if (Array.isArray(node)) {
+      buckets.push(...node);
+    } else if (node && typeof node === "object") {
       for (const k of Object.keys(node)) {
-        const arr = (node as any)[k];
-        if (Array.isArray(arr)) buckets.push(...arr);
+        const val = (node as any)[k];
+        if (Array.isArray(val)) {
+          buckets.push(...val);
+        } else if (val && typeof val === "object") {
+          // For maps like { [player_key]: { player: {...}, score: {...} } }
+          buckets.push(val);
+        }
       }
     }
   }
 
   return buckets
     .map((p) => {
-      const key = p?.key ?? p?.player_key ?? p?.id ?? p?.player_id ?? null;
+      // 🔑 Roanuz shape: p.player is the actual player object
+      const player = p?.player ?? p;
+
+      const key =
+        player?.key ??
+        p?.key ??
+        p?.player_key ??
+        p?.id ??
+        p?.player_id ??
+        null;
+
       if (!key) return null;
+
       const name =
+        player?.jersey_name_v2 ??
+        player?.jersey_name ??
+        player?.name ??
+        player?.legal_name_v2 ??
+        player?.legal_name ??
         p?.name ??
         p?.short_name ??
         p?.full_name ??
-        p?.player?.name ??
-        p?.player?.short_name ??
-        p?.player?.full_name ??
         null;
-      const teamKey = p?.team_key ?? p?.team ?? p?.teamKey ?? p?.player?.team_key ?? null;
-      return { key: String(key), name: name ?? null, teamKey: teamKey ? String(teamKey) : null };
+
+      const teamKey =
+        p?.team_key ??
+        p?.team ??
+        p?.teamKey ??
+        player?.team_key ??
+        null;
+
+      return {
+        key: String(key),
+        name: name ?? null,
+        teamKey: teamKey ? String(teamKey) : null,
+      };
     })
-    .filter((x): x is { key: string; name: string | null; teamKey: string | null } => !!x?.key);
+    .filter(
+      (
+        x,
+      ): x is { key: string; name: string | null; teamKey: string | null } =>
+        !!x?.key,
+    );
 }
+
+
 
 // ======================= SQUAD HYDRATION (SAFE + THROTTLED) =======================
 async function ensurePlayersForMatch(roMatchKey: string, keys: Array<string | null | undefined>) {
@@ -220,8 +264,9 @@ async function ensurePlayersForMatch(roMatchKey: string, keys: Array<string | nu
     }
   }
 
-  // If nothing missing and we've already seeded this match, skip
-  if (cleanKeys.length === 0 && _playersSeeded.has(roMatchKey)) return;
+  // If all requested keys already have names, we usually skip — but allow a snapshot refetch to backfill
+  // legacy rows that were inserted without names (even when cleanKeys is empty). Only skip when we
+  // explicitly provided keys and they all already have names.
   if (cleanKeys.length > 0 && missing.length === 0) return;
 
   // Throttle squad fetch per match (5 minutes)
@@ -390,12 +435,6 @@ function extractTossInfo(payload: any): { winner: string | null; decision: strin
   return { winner: null, decision: null };
 }
 
-function ballsToOvers(ballCount: number): number {
-  // 37 balls => 6.1 overs
-  const o = Math.floor(ballCount / 6);
-  const b = ballCount % 6;
-  return Number((o + b / 10).toFixed(1));
-}
 async function findOrCreateMatch(roMatchKey: string, payload: any): Promise<string> {
   const { data: existing } = await supabase
     .from("matches")
@@ -545,29 +584,6 @@ async function upsertPlayer(
   });
 }
 
-// ======================= PLAYERS LOOKUP (BATCH) =======================
-async function lookupPlayerNames(keys: Array<string | null | undefined>) {
-  const clean = Array.from(new Set((keys || []).filter(Boolean).map(String)));
-  const out: Record<string, string> = {};
-  if (!clean.length) return out;
-
-  const { data, error } = await supabase
-    .from("players")
-    .select("ro_player_key, ro_player_name")
-    .in("ro_player_key", clean);
-
-  if (error) {
-    console.error("[lookupPlayerNames] failed", { error, clean });
-    return out;
-  }
-
-  for (const r of data || []) {
-    if (r?.ro_player_key && r?.ro_player_name) {
-      out[String(r.ro_player_key)] = String(r.ro_player_name);
-    }
-  }
-  return out;
-}
 
 // Resolve player name from the local players table (seeded via snapshots)
 async function lookupPlayerName(roPlayerKey: string | null | undefined) {
@@ -667,12 +683,7 @@ async function handleBallEvent(body: any) {
     detail?.batsman_key ??
     detail?.batsman?.player_id ??
     null;
-  const strikerName =
-    detail?.batsman?.name ??
-    detail?.batsman?.short_name ??
-    detail?.batsman?.full_name ??
-    detail?.batsman_name ??
-    null;
+ 
 
   const nonStrikerKey =
     detail?.non_striker?.player_key ??
@@ -683,13 +694,6 @@ async function handleBallEvent(body: any) {
     detail?.nonStrikerKey ??
     detail?.non_striker?.player_id ??
     null;
-  const nonStrikerName =
-    detail?.non_striker?.name ??
-    detail?.non_striker?.short_name ??
-    detail?.non_striker?.full_name ??
-    detail?.non_striker_name ??
-    null;
-
   const bowlerKey =
     detail?.bowler?.player_key ??
     detail?.bowler?.key ??
@@ -698,18 +702,17 @@ async function handleBallEvent(body: any) {
     detail?.bowler_key ??
     detail?.bowler?.player_id ??
     null;
-  const bowlerName =
-    detail?.bowler?.name ??
-    detail?.bowler?.short_name ??
-    detail?.bowler?.full_name ??
-    detail?.bowler_name ??
-    null;
+  
+await ensurePlayersForMatch(roMatchKey, [strikerKey, nonStrikerKey, bowlerKey]);
 
-  // Ensure we always have displayable names even if this ball push only had keys.
-  const strikerNameFinal = strikerName ?? (await lookupPlayerName(strikerKey)) ?? (strikerKey ? String(strikerKey) : null);
-  const nonStrikerNameFinal =
-    nonStrikerName ?? (await lookupPlayerName(nonStrikerKey)) ?? (nonStrikerKey ? String(nonStrikerKey) : null);
-  const bowlerNameFinal = bowlerName ?? (await lookupPlayerName(bowlerKey)) ?? (bowlerKey ? String(bowlerKey) : null);
+const strikerNameFinal =
+  (await lookupPlayerName(strikerKey)) ?? (strikerKey ? String(strikerKey) : null);
+
+const nonStrikerNameFinal =
+  (await lookupPlayerName(nonStrikerKey)) ?? (nonStrikerKey ? String(nonStrikerKey) : null);
+
+const bowlerNameFinal =
+  (await lookupPlayerName(bowlerKey)) ?? (bowlerKey ? String(bowlerKey) : null);
 
   // ---- Wicket ----
   const wicket = detail?.wicket ?? null;
@@ -936,57 +939,6 @@ async function handleNonBallUpdate(body: any) {
   // Ensure squad players are cached (names for keys)
   await ensurePlayersForMatch(roMatchKey, []);
 
-  // Upsert players if snapshot has them (multiple shapes handled)
-  const collectPlayers = (): any[] => {
-    const buckets: any[] = [];
-    const candidates = [
-      snapshot?.squads,
-      snapshot?.players,
-      snapshot?.team_players,
-      snapshot?.squad,
-      snapshot?.match?.squad,
-      snapshot?.match?.squads,
-      snapshot?.match?.players,
-      snapshot?.match?.team_players,
-    ].filter(Boolean);
-
-    for (const node of candidates) {
-      if (Array.isArray(node)) {
-        buckets.push(...node);
-      } else if (node && typeof node === "object") {
-        for (const k of Object.keys(node)) {
-          const arr = (node as any)[k];
-          if (Array.isArray(arr)) buckets.push(...arr);
-        }
-      }
-    }
-    return buckets;
-  };
-
-  const squadPlayers = collectPlayers();
-  if (!_playersSeeded.has(roMatchKey)) {
-    for (const p of squadPlayers) {
-      const key =
-        p?.key ||
-        p?.player_key ||
-        p?.id ||
-        p?.player_id ||
-        p?.ro_player_key ||
-        null;
-      const name =
-        p?.name ||
-        p?.short_name ||
-        p?.full_name ||
-        p?.player?.name ||
-        p?.player?.short_name ||
-        p?.player?.full_name ||
-        null;
-      const teamKey = p?.team_key || p?.team || p?.teamKey || null;
-      await upsertPlayer(key, name, teamKey);
-    }
-    if (squadPlayers.length > 0) _playersSeeded.add(roMatchKey);
-  }
-
   // Update match state fields
   const status = snapshot?.status || data?.match?.status || data?.status || "";
   const update: any = {
@@ -1163,12 +1115,8 @@ async function applyMatchWinnerOddsFromProbabilities(
 
   const { backA, backB } = computeHouseOdds(probA, probB, runnerAIsTop, runnerBIsTop);
 
-  const favIsA = probA >= probB;
-  const favBack = favIsA ? backA : backB;
-  const favRounded = Number(favBack.toFixed(2));
-  const dogRounded = Number((4 - favRounded).toFixed(2));
-  const backARounded = favIsA ? favRounded : dogRounded;
-  const backBRounded = favIsA ? dogRounded : favRounded;
+  const backARounded = Number(backA.toFixed(2));
+  const backBRounded = Number(backB.toFixed(2));
 
   const nowIso = new Date().toISOString();
 
@@ -1283,24 +1231,14 @@ function interpolateOdds(winPct: number, isTop: boolean) {
 }
 
 function computeHouseOdds(probA: number, probB: number, teamAIsTop: boolean, teamBIsTop: boolean) {
-  // tie guard
-  const wA = probA * 100;
-  const wB = probB * 100;
-  if (Math.abs(wA - wB) < 1.0) {
-    return { backA: 2.0, backB: 2.0 };
-  }
-
-  const favA = wA >= wB;
-  const favPct = favA ? wA : wB;
-  const favIsTop = favA ? teamAIsTop : teamBIsTop;
+  // Simple model: price each side directly as 1/p (decimal odds) with a floor to avoid divide-by-zero.
   const MIN_ODDS = 1.01;
-  const favBackRaw = interpolateOdds(favPct, favIsTop);
-  const favBack = Math.max(MIN_ODDS, Math.min(favBackRaw, 4 - MIN_ODDS));
-  const dogBack = 4 - favBack;
+  const price = (p: number) => {
+    const clamped = Math.max(p, 0.0001); // avoid zero
+    return Math.max(MIN_ODDS, Number((1 / clamped).toFixed(2)));
+  };
 
-  return favA
-    ? { backA: favBack, backB: dogBack }
-    : { backA: dogBack, backB: favBack };
+  return { backA: price(probA), backB: price(probB) };
 }
 
 async function priceMatchWinnerFromPreOdds(matchId: string, roMatchKey: string) {
@@ -1767,11 +1705,6 @@ async function ensureTossMarket(matchId: string, teams: any) {
     marketId = market.id;
   }
 
-  if (marketError || !market?.id) {
-    console.error("Failed to create Toss market:", marketError);
-    return;
-  }
-
   const runners: any[] = [];
   if (teamsInput?.a) {
     runners.push({
@@ -1933,13 +1866,14 @@ async function createNextBallMarket(matchId: string, inning: number, over: numbe
 }
 
 async function scheduleNextBallMarket(matchId: string, inning: number, over: number, ballInOver: number) {
-  // Determine the very next ball (roll over to next over if needed)
+  // Create market two balls ahead of the current delivery.
   let targetOver = over;
-  let targetBall = ballInOver + 1;
+  let targetBall = ballInOver + 2;
 
-  if (targetBall > 6) {
-    targetOver = over + 1;
-    targetBall = 1;
+  // roll over across overs if we cross 6
+  while (targetBall > 6) {
+    targetOver += 1;
+    targetBall -= 6;
   }
 
   await createNextBallMarket(matchId, inning, targetOver, targetBall);

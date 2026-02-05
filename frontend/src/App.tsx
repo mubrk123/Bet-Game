@@ -19,10 +19,10 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 
 function PageLoader() {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#F7F5EF]">
       <div className="text-center">
-        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-        <p className="mt-4 text-muted-foreground">Loading...</p>
+        <div className="inline-block h-9 w-9 animate-spin rounded-full border-4 border-solid border-[#2563EB] border-r-transparent"></div>
+        <p className="mt-4 text-[#7A7F87]">Loading...</p>
       </div>
     </div>
   );
