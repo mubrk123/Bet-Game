@@ -1,0 +1,264 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --font-sans: 'Inter', 'Montserrat', sans-serif;
+  --font-heading: 'Montserrat', 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+:root {
+  /* Mint + charcoal palette */
+  --background: 222 47% 8%; /* Deep navy charcoal */
+  --foreground: 210 40% 98%;
+  
+  --card: 222 42% 12%;
+  --card-foreground: 210 40% 98%;
+  
+  --popover: 222 47% 9%;
+  --popover-foreground: 210 40% 98%;
+  
+  --primary: 164 74% 44%; /* Mint green */
+  --primary-foreground: 144 100% 11%;
+  
+  --secondary: 222 32% 16%;
+  --secondary-foreground: 210 40% 95%;
+  
+  --muted: 222 32% 18%;
+  --muted-foreground: 215 20.2% 72%;
+  
+  --accent: 222 35% 22%;
+  --accent-foreground: 210 40% 98%;
+  
+  --destructive: 0 84% 58%;
+  --destructive-foreground: 210 40% 98%;
+  
+  --border: 222 32% 24%;
+  --input: 222 32% 18%;
+  --ring: 164 74% 44%;
+  
+  --radius: 0.5rem;
+  
+  --sidebar: 222 47% 7%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-primary: 164 74% 44%;
+  --sidebar-primary-foreground: 144 100% 11%;
+  --sidebar-accent: 222 35% 22%;
+  --sidebar-accent-foreground: 210 40% 95%;
+  --sidebar-border: 222 32% 24%;
+  --sidebar-ring: 164 74% 44%;
+  
+  --chart-1: 164 74% 44%;
+  --chart-2: 36 92% 55%;
+  --chart-3: 203 89% 55%;
+  --chart-4: 222 80% 60%;
+  --chart-5: 322 72% 58%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading uppercase tracking-tight;
+  }
+}
+
+@layer utilities {
+  .text-shadow {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .glass-panel {
+    @apply bg-card/90 backdrop-blur-sm border border-white/5;
+  }
+  .neon-glow {
+    box-shadow: 0 0 10px hsla(var(--primary), 0.5);
+  }
+
+  .casino-royal-bg {
+    background:
+      radial-gradient(850px at 20% 10%, rgba(46,230,197,0.12), transparent 55%),
+      radial-gradient(600px at 80% 0%, rgba(124,104,238,0.08), transparent 52%),
+      radial-gradient(700px at 30% 80%, rgba(46,230,197,0.09), transparent 55%),
+      linear-gradient(135deg, #050912 0%, #081022 45%, #050912 100%);
+  }
+
+  .casino-sparkle {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0) 70%);
+    box-shadow: 0 0 16px rgba(46,230,197,0.6);
+    opacity: 0.5;
+    animation: casinoTwinkle 6s ease-in-out infinite alternate;
+    filter: drop-shadow(0 0 6px rgba(46,230,197,0.35));
+  }
+
+  .casino-fall {
+    width: 2px;
+    height: 120px;
+    background: linear-gradient(180deg, rgba(46,230,197,0) 0%, rgba(46,230,197,0.6) 60%, rgba(46,230,197,0) 100%);
+    opacity: 0.55;
+    animation: casinoFall 14s linear infinite;
+  }
+
+  @keyframes casinoTwinkle {
+    0% { opacity: 0.15; transform: scale(0.8) translateY(0); }
+    50% { opacity: 0.7; transform: scale(1.2) translateY(-2px); }
+    100% { opacity: 0.25; transform: scale(0.9) translateY(1px); }
+  }
+
+  @keyframes casinoFall {
+    0% { transform: translateY(-20%); opacity: 0; }
+    10% { opacity: 0.6; }
+    80% { opacity: 0.6; }
+    100% { transform: translateY(120%); opacity: 0; }
+  }
+
+  /* Mines premium styling */
+  .mines-bg {
+    background:
+      radial-gradient(900px at 10% 0%, rgba(46,230,197,0.15), transparent 55%),
+      radial-gradient(800px at 90% 0%, rgba(88,119,255,0.14), transparent 60%),
+      radial-gradient(700px at 50% 80%, rgba(255,214,102,0.12), transparent 60%),
+      linear-gradient(150deg, #050a18 0%, #0b1530 45%, #050a18 100%);
+    background-size: 140% 140%;
+    animation: minesShift 18s ease-in-out infinite alternate;
+  }
+
+  .mines-carbon {
+    background-image:
+      linear-gradient(135deg, rgba(255,255,255,0.03) 25%, transparent 25%),
+      linear-gradient(225deg, rgba(255,255,255,0.03) 25%, transparent 25%),
+      linear-gradient(45deg, rgba(255,255,255,0.03) 25%, transparent 25%),
+      linear-gradient(315deg, rgba(255,255,255,0.03) 25%, #0a0f1d 25%);
+    background-size: 12px 12px;
+    background-position: 0 0, 0 6px, 6px -6px, -6px 0px;
+  }
+
+  .tile-scan {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(46,230,197,0.35) 50%, transparent 100%);
+    animation: tileScan 0.75s ease-in-out;
+    mix-blend-mode: screen;
+  }
+
+  .pattern-hint {
+    position: absolute;
+    inset: 4px;
+    border: 1px dashed rgba(255,255,255,0.12);
+    border-radius: 12px;
+    pointer-events: none;
+  }
+
+  .tile-glow {
+    box-shadow:
+      0 10px 30px -20px rgba(0,0,0,0.8),
+      inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .mines-dust {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0) 70%);
+    box-shadow: 0 0 12px rgba(46,230,197,0.4);
+    opacity: 0.4;
+    animation: minesTwinkle 7s ease-in-out infinite alternate;
+  }
+
+  .big-win {
+    animation: bigWinPulse 1.6s ease-in-out infinite;
+  }
+
+  .glitch {
+    position: relative;
+    animation: glitchShift 1.2s infinite;
+  }
+
+  @keyframes tileScan {
+    0% { transform: translateX(-110%); opacity: 0; }
+    20% { opacity: 0.4; }
+    50% { opacity: 0.6; }
+    100% { transform: translateX(110%); opacity: 0; }
+  }
+
+  @keyframes minesTwinkle {
+    0% { opacity: 0.15; transform: scale(0.9); }
+    50% { opacity: 0.7; transform: scale(1.2); }
+    100% { opacity: 0.25; transform: scale(1.0); }
+  }
+
+  @keyframes minesShift {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 100% 50%; }
+  }
+
+  @keyframes bigWinPulse {
+    0%, 100% { filter: drop-shadow(0 0 12px rgba(251,191,36,0.4)); }
+    50% { filter: drop-shadow(0 0 20px rgba(251,191,36,0.7)); }
+  }
+
+  @keyframes glitchShift {
+    0% { clip-path: inset(0 0 0 0); }
+    20% { clip-path: inset(2% 0 0 0); transform: translate(-1px, 1px); }
+    40% { clip-path: inset(0 0 3% 0); transform: translate(1px, -1px); }
+    60% { clip-path: inset(1% 0 2% 0); transform: translate(0, 0); }
+    100% { clip-path: inset(0 0 0 0); transform: translate(0,0); }
+  }
+}

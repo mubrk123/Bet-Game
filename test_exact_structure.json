@@ -1,0 +1,21 @@
+{
+  "data": {
+    "match_push_kind": "ball",
+    "matchkey": "a-rz--cricket--5R1994994978027360295",
+    "match": {
+      "key": "a-rz--cricket--5R1994994978027360295"
+    },
+    "ball": {
+      "ball_key": "exact_test_001",
+      "inning_number": 1,
+      "over_number": 5,
+      "ball_in_over": 3,
+      "runs": {
+        "batsman": 2,
+        "extras": 0,
+        "total": 2
+      },
+      "is_legal_delivery": true
+    }
+  }
+}

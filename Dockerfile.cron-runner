@@ -1,0 +1,13 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install deps for WebSocket client
+COPY scripts/package.json scripts/package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY scripts/live-cron-runner.js ./live-cron-runner.js
+
+ENV INTERVAL_MS=4000
+
+CMD ["node", "live-cron-runner.js"]

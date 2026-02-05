@@ -1,0 +1,46 @@
+{
+  "match_push_kind": "ball",
+  "matchkey": "a-rz--cricket--5R1994994978027360295",
+  "data": {
+    "match": {
+      "key": "a-rz--cricket--5R1994994978027360295",
+      "status": "live",
+      "teams": {
+        "a": {
+          "key": "c__team__ggw__518ce",
+          "name": "Gujarat Giants Women"
+        },
+        "b": {
+          "key": "c__team__miw__37fe2",
+          "name": "Mumbai Indians Women"
+        }
+      }
+    },
+    "ball": {
+      "ball_key": "wpl_test_ball_$(date +%s)",
+      "inning_number": 1,
+      "over_number": 5,
+      "ball_in_over": 3,
+      "sub_ball_number": 0,
+      "runs": {
+        "batsman": 2,
+        "extras": 0,
+        "total": 2
+      },
+      "wicket": null,
+      "extra_type": null,
+      "is_legal_delivery": true,
+      "is_delete": false,
+      "batsman": {
+        "key": "wpl_batter_001",
+        "name": "Harmanpreet Kaur"
+      },
+      "bowler": {
+        "key": "wpl_bowler_001",
+        "name": "Deepti Sharma"
+      },
+      "commentary": "Good running between the wickets",
+      "event_type": "NORMAL"
+    }
+  }
+}

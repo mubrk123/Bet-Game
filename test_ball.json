@@ -1,0 +1,35 @@
+{
+  "match_push_kind": "ball",
+  "matchkey": "a-rz--cricket--J41998481719279362058",
+  "data": {
+    "match": {
+      "key": "a-rz--cricket--J41998481719279362058",
+      "status": "live"
+    },
+    "ball": {
+      "ball_key": "test_ball_001_$(date +%s)",
+      "inning_number": 1,
+      "over_number": 1,
+      "ball_in_over": 1,
+      "runs": {
+        "batsman": 4,
+        "extras": 0,
+        "total": 4
+      },
+      "wicket": null,
+      "extra_type": null,
+      "is_legal_delivery": true,
+      "is_delete": false,
+      "batsman": {
+        "key": "test_batsman_001",
+        "name": "Test Batsman"
+      },
+      "bowler": {
+        "key": "test_bowler_001",
+        "name": "Test Bowler"
+      },
+      "commentary": "Four runs! Excellent shot.",
+      "event_type": "NORMAL"
+    }
+  }
+}

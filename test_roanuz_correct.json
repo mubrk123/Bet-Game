@@ -1,0 +1,16 @@
+{
+  "sport": "cricket",
+  "data_kind": "match-related-update",
+  "data": {
+    "matchkey": "a-rz--cricket--5R1994994978027360295",
+    "ball": {
+      "ball_key": "roanuz_test_ball_1769784071",
+      "over": 5,
+      "batting_order": 1,
+      "is_delete": false
+    },
+    "push_reason": "NewOrLast",
+    "match_push_kind": "Ball",
+    "ts": 1769784071
+  }
+}
