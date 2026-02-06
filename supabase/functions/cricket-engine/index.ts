@@ -50,8 +50,8 @@ function computeDisplayStatus(
   // 2) Explicit "live-ish" statuses from ro_status
   //    These should ALWAYS appear as LIVE, even if they come first.
   const liveHints = [
-    "started",        // 👈 THIS was missing earlier
     "live",
+    "toss",
     "in-progress",
     "in progress",
     "running",
@@ -1003,8 +1003,19 @@ async function handleNonBallUpdate(body: any) {
     return { success: true, matchId, roMatchKey, updateType: "non_ball_snapshot" };
   }
 
-  if (computedDisplayStatus === "FINISHED") {
-    return { success: true, matchId, roMatchKey, updateType: "non_ball_snapshot" };
+   if (computedDisplayStatus === "FINISHED") {
+    await settleMatchWinnerMarket(matchId, roMatchKey, snapshot);
+    await voidOpenInstanceMarketsForMatch(
+      matchId,
+      `auto-void: match finished (${statusString || "no status"})`,
+    );
+
+    return {
+      success: true,
+      matchId,
+      roMatchKey,
+      updateType: "non_ball_snapshot",
+    };
   }
 
   if (computedDisplayStatus === "UPCOMING") {
@@ -1013,7 +1024,13 @@ async function handleNonBallUpdate(body: any) {
     await syncMatchWinnerOddsFromLiveApi(matchId, roMatchKey);
   }
 
-  return { success: true, matchId, roMatchKey, updateType: "non_ball_snapshot" };
+  return {
+    success: true,
+    matchId,
+    roMatchKey,
+    updateType: "non_ball_snapshot",
+  };
+
 }
 
 // ======================= ODDS HELPERS =======================
@@ -1416,6 +1433,250 @@ async function settleInstanceMarkets(
   // If wicket fell, also settle NEXT_WICKET_METHOD markets
   if (isWicket) {
     await settleNextWicketMethodMarkets(matchId, inning, normalizedBall.ro_wicket_kind);
+  }
+}
+async function settleMatchWinnerMarket(
+  matchId: string,
+  roMatchKey?: string | null,
+  snapshot?: any | null,
+) {
+  const { data: market } = await supabase
+    .from("markets")
+    .select("id, market_status")
+    .eq("match_id", matchId)
+    .eq("market_name", "Match Winner")
+    .maybeSingle();
+
+  if (!market?.id) return;
+  if (market.market_status === "SETTLED") return;
+
+  let roKey = roMatchKey || null;
+
+  if (!roKey) {
+    const { data: mrow, error: mErr } = await supabase
+      .from("matches")
+      .select("ro_match_key")
+      .eq("id", matchId)
+      .maybeSingle();
+    if (mErr) {
+      console.error("[settleMatchWinnerMarket] failed to read match row", {
+        matchId,
+        error: mErr,
+      });
+      return;
+    }
+    roKey = mrow?.ro_match_key || null;
+  }
+
+  let snap: any = snapshot || null;
+  if (!snap && roKey) {
+    try {
+      snap = await fetchRoanuzMatchSnapshot(roKey);
+    } catch (err) {
+      console.error("[settleMatchWinnerMarket] snapshot fetch failed", {
+        matchId,
+        roMatchKey: roKey,
+        err,
+      });
+      return;
+    }
+  }
+
+  if (!snap) return;
+
+  const winnerCandidates = [
+    snap?.winner,
+    snap?.match?.winner,
+    snap?.match?.result?.winner,
+    snap?.match?.result?.winner_team,
+    snap?.result?.winner,
+    snap?.result?.winner_team,
+    snap?.winning_team,
+    snap?.team_won,
+  ];
+
+  const winnerRaw =
+    winnerCandidates.find((x) => typeof x === "string" && x.length > 0) || null;
+
+  if (!winnerRaw) {
+    console.warn("[settleMatchWinnerMarket] no winner field in snapshot", {
+      matchId,
+      roMatchKey: roKey,
+    });
+    return;
+  }
+
+  const normWinner = normalizeTeamKey(String(winnerRaw));
+
+  const { data: runners, error: rErr } = await supabase
+    .from("market_runners")
+    .select("id, runner_name, ro_team_key")
+    .eq("market_id", market.id);
+
+  if (rErr || !runners?.length) {
+    console.error("[settleMatchWinnerMarket] runners lookup failed", {
+      matchId,
+      marketId: market.id,
+      error: rErr,
+    });
+    return;
+  }
+
+  const winningRunner =
+    runners.find(
+      (r: any) =>
+        r.ro_team_key && normalizeTeamKey(r.ro_team_key) === normWinner,
+    ) ||
+    runners.find(
+      (r: any) => normalizeTeamKey(r.runner_name) === normWinner,
+    ) ||
+    null;
+
+  if (!winningRunner) {
+    console.warn("[settleMatchWinnerMarket] no matching runner for winner", {
+      matchId,
+      roMatchKey: roKey,
+      winnerRaw,
+      runners: runners.map((r: any) => ({
+        name: r.runner_name,
+        key: r.ro_team_key,
+      })),
+    });
+    return;
+  }
+
+  const winningOutcome = winningRunner.runner_name;
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("markets")
+    .update({
+      market_status: "SETTLED",
+      winning_outcome: winningOutcome,
+      settle_time: nowIso,
+      close_time: nowIso,
+      updated_at: nowIso,
+    })
+    .eq("id", market.id);
+
+  await settleMarketBets(market.id, winningOutcome);
+}
+
+async function voidMarketBets(marketId: string, reason: string) {
+  const { data: bets } = await supabase
+    .from("bets")
+    .select("id, user_id, stake, odds, bet_type, liability")
+    .eq("market_id", marketId)
+    .eq("bet_status", "OPEN");
+
+  if (!bets?.length) return;
+
+  const nowIso = new Date().toISOString();
+
+  for (const b of bets) {
+    const stake = Number(b.stake ?? 0);
+    const odds = Number(b.odds ?? 0);
+    const betType = (b.bet_type || "BACK") as "BACK" | "LAY";
+    const requiredAmount =
+      betType === "LAY"
+        ? Number(b.liability ?? stake * Math.max(0, odds - 1))
+        : stake;
+
+    const { data: claimed, error: claimErr } = await supabase
+      .from("bets")
+      .update({
+        bet_status: "VOID",
+        winning_outcome: null,
+        payout: requiredAmount,
+        settled_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("id", b.id)
+      .eq("bet_status", "OPEN")
+      .select("id")
+      .maybeSingle();
+
+    if (claimErr) throw new ApiError(claimErr.message);
+    if (!claimed) continue;
+
+    const { data: userRow, error: userErr } = await supabase
+      .from("users")
+      .select("balance, exposure")
+      .eq("id", b.user_id)
+      .single();
+
+    if (userErr || !userRow) {
+      console.error("[voidMarketBets] missing user row", {
+        betId: b.id,
+        userId: b.user_id,
+        userErr,
+      });
+      continue;
+    }
+
+    const balanceBefore = Number(userRow.balance ?? 0);
+    const exposureBefore = Number(userRow.exposure ?? 0);
+    const exposureAfter = Math.max(
+      0,
+      Number((exposureBefore - requiredAmount).toFixed(2)),
+    );
+    const balanceAfter = Number(
+      (balanceBefore + requiredAmount).toFixed(2),
+    );
+
+    await supabase
+      .from("users")
+      .update({ balance: balanceAfter, exposure: exposureAfter })
+      .eq("id", b.user_id);
+
+    await supabase.from("wallet_transactions").insert({
+      user_id: b.user_id,
+      amount: requiredAmount,
+      type: "BET_VOID",
+      description:
+        reason || "Bet void – market closed after match finished",
+      reference_id: b.id,
+      reference_type: "bet",
+      balance_before: balanceBefore,
+      balance_after: balanceAfter,
+    });
+  }
+}
+
+async function voidOpenInstanceMarketsForMatch(
+  matchId: string,
+  reason: string,
+) {
+  const { data: markets, error } = await supabase
+    .from("instance_markets")
+    .select("id")
+    .eq("match_id", matchId)
+    .eq("market_status", "OPEN");
+
+  if (error) {
+    console.error("[voidOpenInstanceMarketsForMatch] load failed", {
+      matchId,
+      error,
+    });
+    return;
+  }
+
+  if (!markets?.length) return;
+
+  const nowIso = new Date().toISOString();
+
+  for (const m of markets) {
+    await supabase
+      .from("instance_markets")
+      .update({
+        market_status: "SETTLED",
+        winning_outcome: null,
+        result_data: { reason },
+        settle_time: nowIso,
+      })
+      .eq("id", m.id);
+
+    await voidMarketBets(m.id, reason);
   }
 }
 

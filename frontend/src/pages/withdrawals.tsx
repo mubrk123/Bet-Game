@@ -85,9 +85,9 @@ function SegmentedTabs({
 
   return (
     <div className="w-full">
-      <div className="relative w-full rounded-full bg-muted/25 border border-border/50 p-1 overflow-hidden">
+      <div className="relative w-full rounded-full bg-white border border-[#E5E0D6] p-1 overflow-hidden shadow-inner">
         <div
-          className="absolute top-1 bottom-1 rounded-full bg-background/85 shadow-sm transition-all duration-200"
+          className="absolute top-1 bottom-1 rounded-full bg-white shadow-sm transition-all duration-200"
           style={{
             width: `${100 / items.length}%`,
             transform: `translateX(${idx * 100}%)`,
@@ -103,12 +103,12 @@ function SegmentedTabs({
                 onClick={() => onChange(item.key)}
                 className={cn(
                   "py-2 text-[11px] font-semibold rounded-full transition-colors flex items-center justify-center gap-2",
-                  active ? "text-foreground" : "text-muted-foreground"
+                  active ? "text-[#0B8A5F]" : "text-[#7A7F87]"
                 )}
               >
                 <span>{item.label}</span>
                 {typeof item.badge === "number" && item.badge > 0 ? (
-                  <span className="h-5 min-w-5 px-1 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
+                  <span className="h-5 min-w-5 px-1 rounded-full bg-[#D92148] text-white text-[10px] flex items-center justify-center">
                     {item.badge}
                   </span>
                 ) : null}
@@ -154,7 +154,7 @@ function QuickChip({ label, onClick }: { label: string; onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="px-3 py-1.5 rounded-full bg-muted/20 border border-border/50 text-xs text-foreground/80 hover:bg-muted/30 transition"
+      className="px-3 py-1.5 rounded-full bg-[#F7F5EF] border border-[#E5E0D6] text-xs text-[#1F2733] hover:bg-[#ECFDF5] transition"
     >
       {label}
     </button>
@@ -177,17 +177,17 @@ function ActivityRow({
   return (
     <div className="flex items-center justify-between gap-3 py-3">
       <div className="flex items-center gap-3 min-w-0">
-        <div className="h-10 w-10 rounded-2xl bg-muted/20 border border-border/40 flex items-center justify-center">
+        <div className="h-10 w-10 rounded-2xl bg-white border border-[#94A3B8] flex items-center justify-center shadow-sm">
           {icon}
         </div>
         <div className="min-w-0">
-          <div className="text-sm font-semibold truncate">{title}</div>
-          <div className="text-xs text-muted-foreground truncate">{subtitle}</div>
+          <div className="text-sm font-semibold text-[#0F172A] truncate">{title}</div>
+          <div className="text-xs text-[#475569] truncate">{subtitle}</div>
         </div>
       </div>
 
       <div className="text-right shrink-0">
-        <div className="text-sm font-semibold">{rightTop}</div>
+        <div className="text-sm font-bold text-[#0F172A]">{rightTop}</div>
         {rightBottom ? <div className="mt-1">{rightBottom}</div> : null}
       </div>
     </div>
@@ -362,13 +362,13 @@ export default function Withdrawals() {
 
   return (
     <AppShell>
-      <div className="p-4 space-y-5 pb-28">
+      <div className="p-3 md:p-4 space-y-4 pb-16">
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight" data-testid="text-page-title">
+            <h1 className="text-2xl font-black tracking-tight text-[#0B1B31]" data-testid="text-page-title">
               Wallet
             </h1>
-            <div className="text-xs text-muted-foreground">Fast & secure transactions</div>
+            <div className="text-sm text-[#4B5563] font-semibold">Fast & secure transactions</div>
           </div>
         </div>
 
@@ -376,25 +376,23 @@ export default function Withdrawals() {
         <SegmentedTabs value={tab} onChange={setTab} items={tabs} />
 
         {/* Hero balance card */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-gradient-to-br from-emerald-500/15 via-slate-900/20 to-slate-900/40">
-          <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-emerald-500/10 blur-2xl" />
-          <div className="absolute -bottom-24 -left-20 h-72 w-72 rounded-full bg-blue-500/10 blur-2xl" />
+        <div className="relative overflow-hidden rounded-2xl border border-[#94A3B8] bg-white shadow-xl">
           <div className="relative p-5">
             <div className="flex items-start justify-between">
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="text-[10px] uppercase tracking-wider text-[#7A7F87]">
                   Total Balance
                 </div>
-                <div className="mt-2 text-4xl font-extrabold text-foreground">
+                <div className="mt-2 text-4xl font-extrabold text-[#0B8A5F]">
                   {formatMoney(heroBalance)}
                 </div>
-                <div className="mt-2 inline-flex items-center gap-2 text-xs text-muted-foreground">
-                  <ShieldCheck className="h-4 w-4" />
+                <div className="mt-2 inline-flex items-center gap-2 text-xs text-[#4B5563]">
+                  <ShieldCheck className="h-4 w-4 text-[#0B8A5F]" />
                   Protected by admin approval
                 </div>
               </div>
-              <div className="h-11 w-11 rounded-2xl bg-background/30 border border-border/40 flex items-center justify-center">
-                <WalletIcon className="h-5 w-5 text-emerald-300" />
+              <div className="h-11 w-11 rounded-2xl bg-white border border-[#E5E0D6] flex items-center justify-center shadow-inner">
+                <WalletIcon className="h-5 w-5 text-[#0B8A5F]" />
               </div>
             </div>
           </div>
@@ -402,30 +400,30 @@ export default function Withdrawals() {
 
         {/* Deposit / Withdraw fintech input */}
         {(tab === "deposit" || tab === "withdraw") && (
-          <Card className="border border-border/40 bg-card/40 backdrop-blur">
+        <Card className="border border-[#CBD5E1] bg-white shadow-lg">
             <CardContent className="p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold">
+                <div className="text-sm font-bold text-[#0F172A]">
                   {tab === "deposit" ? "Deposit Amount" : "Withdraw Amount"}
                 </div>
                 {tab === "withdraw" ? (
-                  <div className="text-xs text-muted-foreground">
-                    Withdrawable: <span className="text-emerald-300 font-mono">{formatMoney(withdrawable)}</span>
+                  <div className="text-sm text-[#374151] font-semibold">
+                    Withdrawable: <span className="text-[#0B8A5F] font-mono">{formatMoney(withdrawable)}</span>
                   </div>
                 ) : null}
               </div>
 
               {/* Huge amount input */}
-              <div className="rounded-2xl bg-background/40 border border-border/40 px-4 py-4">
+              <div className="rounded-2xl bg-white border border-[#CBD5E1] px-4 py-4 shadow-inner">
                 <div className="flex items-center justify-center gap-2">
-                  <span className="text-3xl text-muted-foreground">₹</span>
+                  <span className="text-3xl font-black text-[#111827]">₹</span>
                   <input
                     inputMode="numeric"
                     pattern="[0-9]*"
                     className={cn(
-                      "w-full text-center bg-transparent outline-none text-5xl font-extrabold tracking-tight",
-                      "placeholder:text-muted-foreground/40",
-                      tab === "deposit" ? "text-emerald-300" : "text-foreground"
+                      "w-full text-center bg-transparent outline-none text-5xl font-black tracking-tight",
+                      "placeholder:text-[#CBD5E1]",
+                      tab === "deposit" ? "text-[#0B8A5F]" : "text-[#0B1B31]"
                     )}
                     placeholder="0"
                     value={tab === "deposit" ? depositAmount : withdrawAmount}
@@ -435,7 +433,7 @@ export default function Withdrawals() {
                     data-testid={tab === "deposit" ? "input-deposit-amount" : "input-withdraw-amount"}
                   />
                 </div>
-                <div className="mt-2 text-center text-xs text-muted-foreground">
+                <div className="mt-2 text-center text-sm text-[#4B5563] font-semibold">
                   {tab === "deposit" ? "Minimum ₹1 • Admin approval required" : "Winnings only • Admin approval required"}
                 </div>
               </div>
@@ -451,7 +449,7 @@ export default function Withdrawals() {
               {/* Payment method row */}
               <button
                 type="button"
-                className="w-full flex items-center justify-between rounded-2xl bg-muted/15 border border-border/40 px-4 py-3 hover:bg-muted/20 transition"
+                className="w-full flex items-center justify-between rounded-2xl bg-white border border-[#E5E0D6] px-4 py-3 hover:bg-[#ECFDF5] transition"
                 onClick={() => {
                   toast({
                     title: "Payment Method",
@@ -460,15 +458,15 @@ export default function Withdrawals() {
                 }}
               >
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-2xl bg-background/40 border border-border/40 flex items-center justify-center">
-                    <Info className="h-5 w-5 text-muted-foreground" />
+                  <div className="h-10 w-10 rounded-2xl bg-[#F7F5EF] border border-[#E5E0D6] flex items-center justify-center">
+                    <Info className="h-5 w-5 text-[#7A7F87]" />
                   </div>
                   <div className="text-left">
                     <div className="text-sm font-semibold">Payment Method</div>
-                    <div className="text-xs text-muted-foreground">Admin Transfer</div>
+                    <div className="text-xs text-[#7A7F87]">Admin Transfer</div>
                   </div>
                 </div>
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                <ChevronRight className="h-4 w-4 text-[#7A7F87]" />
               </button>
             </CardContent>
           </Card>
@@ -478,11 +476,11 @@ export default function Withdrawals() {
         {tab === "activity" && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold">Recent Activity</div>
-              <div className="text-xs text-muted-foreground">Last 30 days</div>
+              <div className="text-sm font-bold text-[#0F172A]">Recent Activity</div>
+              <div className="text-xs font-semibold text-[#475569]">Last 30 days</div>
             </div>
 
-            <Card className="border border-border/40 bg-card/40 backdrop-blur">
+          <Card className="border border-[#94A3B8] bg-white shadow-lg">
               <CardContent className="p-4">
                 {/* Deposit requests */}
                 {myDepositRequests?.requests?.length ? (
@@ -490,23 +488,23 @@ export default function Withdrawals() {
                     {myDepositRequests.requests.slice(0, 5).map((req) => (
                       <ActivityRow
                         key={req.id}
-                        icon={<ArrowDownToLine className="h-5 w-5 text-emerald-300" />}
+                        icon={<ArrowDownToLine className="h-5 w-5 text-[#0B8A5F]" />}
                         title="Deposit Request"
                         subtitle={new Date(req.createdAt).toLocaleString()}
-                        rightTop={<span className="text-emerald-300 font-mono">+{formatMoney(parseNum(req.amount))}</span>}
+                        rightTop={<span className="text-[#0B8A5F] font-mono font-bold">+{formatMoney(parseNum(req.amount))}</span>}
                         rightBottom={<StatusPill status={req.status} />}
                       />
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center text-sm text-muted-foreground py-6">
+                  <div className="text-center text-sm text-[#475569] font-semibold py-6">
                     No deposit activity yet
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card className="border border-border/40 bg-card/40 backdrop-blur">
+            <Card className="border border-[#94A3B8] bg-white shadow-lg">
               <CardContent className="p-4">
                 {/* Withdrawal requests */}
                 {myWithdrawalRequests?.requests?.length ? (
@@ -514,23 +512,23 @@ export default function Withdrawals() {
                     {myWithdrawalRequests.requests.slice(0, 5).map((req) => (
                       <ActivityRow
                         key={req.id}
-                        icon={<ArrowUpFromLine className="h-5 w-5 text-red-300" />}
+                        icon={<ArrowUpFromLine className="h-5 w-5 text-[#D92148]" />}
                         title="Withdrawal Request"
                         subtitle={new Date(req.createdAt).toLocaleString()}
-                        rightTop={<span className="text-red-300 font-mono">-{formatMoney(parseNum(req.amount))}</span>}
+                        rightTop={<span className="text-[#D92148] font-mono font-bold">-{formatMoney(parseNum(req.amount))}</span>}
                         rightBottom={<StatusPill status={req.status} />}
                       />
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center text-sm text-muted-foreground py-6">
+                  <div className="text-center text-sm text-[#475569] font-semibold py-6">
                     No withdrawal activity yet
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card className="border border-border/40 bg-card/40 backdrop-blur">
+            <Card className="border border-[#94A3B8] bg-white shadow-lg">
               <CardContent className="p-4">
                 {/* Transactions */}
                 {transactions?.transactions?.length ? (
@@ -543,21 +541,21 @@ export default function Withdrawals() {
                           key={tx.id}
                           icon={
                             isIn ? (
-                              <ArrowDownToLine className="h-5 w-5 text-emerald-300" />
+                              <ArrowDownToLine className="h-5 w-5 text-[#0B8A5F]" />
                             ) : (
-                              <ArrowUpFromLine className="h-5 w-5 text-red-300" />
+                              <ArrowUpFromLine className="h-5 w-5 text-[#D92148]" />
                             )
                           }
                           title={tx.type.replace(/_/g, " ")}
                           subtitle={tx.description || new Date(tx.createdAt).toLocaleString()}
                           rightTop={
-                            <span className={cn("font-mono", isIn ? "text-emerald-300" : "text-red-300")}>
+                            <span className={cn("font-mono font-bold", isIn ? "text-[#0B8A5F]" : "text-[#D92148]")}>
                               {isIn ? "+" : "-"}
                               {formatMoney(Math.abs(amt))}
                             </span>
                           }
                           rightBottom={
-                            <div className="text-[11px] text-muted-foreground">
+                            <div className="text-[11px] text-[#475569]">
                               {new Date(tx.createdAt).toLocaleDateString()}
                             </div>
                           }
@@ -566,7 +564,7 @@ export default function Withdrawals() {
                     })}
                   </div>
                 ) : (
-                  <div className="text-center text-sm text-muted-foreground py-6">
+                  <div className="text-center text-sm text-[#475569] font-semibold py-6">
                     No transactions yet
                   </div>
                 )}
@@ -580,7 +578,7 @@ export default function Withdrawals() {
           <div className="space-y-4">
             <div className="text-sm font-semibold">Admin Approvals</div>
 
-            <Card className="border border-border/40 bg-card/40 backdrop-blur">
+            <Card className="border border-[#E5E0D6] bg-white shadow-md">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold">Pending Deposits</div>
@@ -645,7 +643,7 @@ export default function Withdrawals() {
               </CardContent>
             </Card>
 
-            <Card className="border border-border/40 bg-card/40 backdrop-blur">
+            <Card className="border border-[#E5E0D6] bg-white shadow-md">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold">Pending Withdrawals</div>
@@ -718,10 +716,10 @@ export default function Withdrawals() {
         <div className="fixed left-0 right-0 bottom-16 md:bottom-0 z-40 px-4 pb-4">
           <Button
             className={cn(
-              "w-full h-14 rounded-2xl text-base font-extrabold shadow-sm",
+              "w-full h-14 rounded-2xl text-base font-extrabold shadow-md",
               tab === "deposit"
-                ? "bg-emerald-600 hover:bg-emerald-700"
-                : "bg-foreground text-background hover:bg-foreground/90"
+                ? "bg-[#0B8A5F] hover:bg-[#0A7A55]"
+                : "bg-[#0B8A5F] hover:bg-[#0A7A55]"
             )}
             onClick={onSubmit}
             disabled={primaryButtonDisabled}

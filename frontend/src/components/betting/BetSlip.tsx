@@ -3,13 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useStore } from "@/lib/store";
-import type { Match, Runner } from "@/lib/store";
+import type { Match, Market, Runner } from "@/lib/store";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 type BetSlipProps = {
   selectedBet: {
     match: Match;
+    market: Market;
     runner: Runner;
     type: "BACK" | "LAY";
     odds: number;
@@ -40,7 +41,7 @@ export function BetSlip({ selectedBet, onClear, variant = "default" }: BetSlipPr
     try {
       await api.placeBet({
         matchId: selectedBet.match.id,
-        marketId: selectedBet.match.markets[0].id,
+        marketId: selectedBet.market.id,
         runnerId: selectedBet.runner.id,
         runnerName: selectedBet.runner.name,
         type: selectedBet.type,
@@ -79,13 +80,18 @@ export function BetSlip({ selectedBet, onClear, variant = "default" }: BetSlipPr
       <div className="rounded-2xl border border-[#E5E0D6] bg-[#FDFBF6] text-[#1F2733] shadow-xl w-full max-w-sm p-3 space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-sm font-semibold truncate">{selectedBet.runner.name}</p>
+            <div className="text-[11px] uppercase tracking-[0.12em] text-[#7A7F87] mb-1">
+              Selection
+            </div>
+            <p className="text-sm font-semibold truncate text-[#0F172A]">
+              {selectedBet.runner.name}
+            </p>
             <div className="mt-1 flex items-center gap-2 text-[11px]">
               <span className="px-2 py-[3px] rounded-full bg-[#ECFDF5] text-[#0B8A5F] border border-[#C1F0D6]">
                 {selectedBet.type} {selectedBet.odds.toFixed(2)}
               </span>
               <span className="px-2 py-[3px] rounded-full bg-[#F7F5EF] text-[#4B5563] border border-[#E5E0D6]">
-                {selectedBet.match.markets[0].name}
+                {selectedBet.market.name}
               </span>
             </div>
           </div>
@@ -119,11 +125,11 @@ export function BetSlip({ selectedBet, onClear, variant = "default" }: BetSlipPr
 
         <div className="flex items-center justify-between text-sm text-[#4B5563]">
           <span>Potential {selectedBet.type === "BACK" ? "Win" : "Liability"}</span>
-          <span className="font-bold text-[#0EA5E9]">₹{potentialProfit}</span>
+          <span className="font-bold text-[#0B8A5F]">₹{potentialProfit}</span>
         </div>
 
         <Button
-          className="w-full bg-[#14B8A6] hover:bg-[#0EA5E9] text-white font-semibold"
+          className="w-full bg-[#0B8A5F] hover:bg-[#0A7A55] text-white font-semibold shadow-md"
           onClick={placeBet}
           disabled={isPlacing}
           data-testid="button-place-bet"
@@ -151,11 +157,14 @@ export function BetSlip({ selectedBet, onClear, variant = "default" }: BetSlipPr
       <div className="p-3 rounded-lg bg-[#F7F5EF] border border-[#E5E0D6] mb-3">
         <div className="flex justify-between text-sm mb-1">
           <span className="font-medium text-[#1F2733]">{selectedBet.runner.name}</span>
-          <span className="px-2 py-0.5 rounded text-xs font-bold bg-[#E8F1FF] text-[#2563EB]">
+          <span className="px-2 py-0.5 rounded text-xs font-bold bg-[#ECFDF5] text-[#0B8A5F] border border-[#C1F0D6]">
             {selectedBet.type} @ {selectedBet.odds.toFixed(2)}
           </span>
         </div>
-        <p className="text-xs text-[#7A7F87]">Market: {selectedBet.match.markets[0].name}</p>
+        <p className="text-[11px] uppercase tracking-[0.14em] text-[#7A7F87] mb-0.5">
+          Selection
+        </p>
+        <p className="text-xs text-[#7A7F87]">Market: {selectedBet.market.name}</p>
       </div>
 
       <div className="space-y-2">
@@ -182,10 +191,10 @@ export function BetSlip({ selectedBet, onClear, variant = "default" }: BetSlipPr
         </div>
         <div className="flex justify-between text-sm text-[#7A7F87]">
           <span>Potential {selectedBet.type === "BACK" ? "Win" : "Liability"}</span>
-          <span className="font-bold text-[#2563EB]">₹{potentialProfit}</span>
+          <span className="font-bold text-[#0B8A5F]">₹{potentialProfit}</span>
         </div>
         <Button
-          className="w-full"
+          className="w-full bg-[#0B8A5F] hover:bg-[#0A7A55] text-white font-semibold shadow-md"
           onClick={placeBet}
           disabled={isPlacing}
           data-testid="button-place-bet"

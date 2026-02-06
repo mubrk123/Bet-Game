@@ -195,6 +195,13 @@ function extractSquadsFromPayload(payload: any): Squads {
   };
 }
 
+function compactLabel(label?: string | null) {
+  if (!label) return "";
+  const v = label.trim();
+  if (/^united states of america$/i.test(v)) return "USA";
+  return v;
+}
+
 function teamInitials(name: string) {
   if (!name) return "";
   const parts = name.trim().split(/\s+/);
@@ -826,7 +833,7 @@ function QuickBetSheet({
           {quickAmounts.map((amt) => (
             <button
               key={amt}
-              className="flex-1 rounded-lg border border-[#E5E7EB] bg-white py-2 text-center text-[12px] font-semibold text-[#111827] hover:bg-[#F1F5F9] transition"
+              className="flex-1 rounded-lg border border-[#94A3B8] bg-white py-2 text-center text-[13px] font-bold text-[#0B1B31] hover:bg-[#F1F5F9] transition shadow-sm"
               onClick={(e) => {
                 e.stopPropagation();
                 setStake(String(amt));
@@ -1601,6 +1608,17 @@ export default function MatchDetail() {
       });
   }, [instanceMarkets]);
 
+  const addBallOffset = (over: number, ball: number, offset: number) => {
+    // ball numbers assumed 1-6
+    let o = over;
+    let b = ball + offset;
+    while (b > 6) {
+      b -= 6;
+      o += 1;
+    }
+    return { over: o, ball: b };
+  };
+
   const activeNextBallMarket = useMemo(() => {
     if (openNextBallMarkets.length === 0) return null;
     const currentInningMarkets = openNextBallMarkets.filter(
@@ -1609,13 +1627,15 @@ export default function MatchDetail() {
     const latestOver = toNum(latestInningBall?.over, -1);
     const latestBallNum = toNum(latestInningBall?.ball, 0);
 
+    const { over: targetOver, ball: targetBall } = addBallOffset(latestOver, latestBallNum, 2);
+
     const nextForCurrent = currentInningMarkets.find((m) => {
       const over = toNum((m as any).ro_over_number ?? (m as any).over_number ?? 0, 0);
       const ball = toNum((m as any).ro_ball_number ?? (m as any).ball_number ?? 0, 0);
-      return over > latestOver || (over === latestOver && ball > latestBallNum);
+      return over > targetOver || (over === targetOver && ball >= targetBall);
     });
     if (nextForCurrent) return nextForCurrent;
-    if (currentInningMarkets.length > 0) return currentInningMarkets[0];
+    if (currentInningMarkets.length > 0) return currentInningMarkets[currentInningMarkets.length - 1];
     return openNextBallMarkets[0];
   }, [openNextBallMarkets, activeInning, latestInningBall]);
 
@@ -1928,7 +1948,7 @@ export default function MatchDetail() {
     );
   }
 
-  const leagueLabel = match.tournament || match.competition || match.series || "League TBA";
+  const leagueLabel = compactLabel(match.tournament || match.competition || match.series || "League TBA");
   const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
   const matchShortDate = formatShortDayTime(match.startTime);
   const needLine =
@@ -2017,22 +2037,21 @@ export default function MatchDetail() {
     const lastTradedBack = Number.isFinite(back) ? back.toFixed(2) : "—";
     const lastTradedLay = hasLay ? lay.toFixed(2) : "—";
 
-    const tileBase = "h-full w-full rounded-xl border border-[#E5E7EB] px-3 py-2 text-left transition";
+    const tileBase = "h-full w-full rounded-xl px-3 py-2 text-left transition";
 
     return (
-      <div key={r.id} className="grid grid-cols-[1.4fr_1fr_1fr] items-stretch gap-2 rounded-xl bg-[#F6F8FB]">
+      <div
+        key={r.id}
+        className="grid grid-cols-[1.4fr_1fr_1fr] items-stretch gap-2 rounded-xl bg-white"
+      >
         <div className="min-w-0 flex flex-col justify-center">
-          <p className="text-[13px] font-semibold text-[#111827] truncate">{teamName}</p>
-          <p className="text-[11px] text-[#6C757D]">
-            Last traded: {lastTradedBack} / {lastTradedLay}
-          </p>
+          <p className="text-[14px] font-semibold text-[#0F172A] truncate">{teamName}</p>
+          <p className="text-[12px] text-[#374151]">Last traded: {lastTradedBack} / {lastTradedLay}</p>
         </div>
         <button
           className={cn(
             tileBase,
-            ui.backBg,
-            ui.backText,
-            "hover:shadow-sm",
+            "bg-[#E3F4E8] text-[#0B1B31] rounded-lg",
             bettingDisabled && "opacity-60 cursor-not-allowed"
           )}
           disabled={bettingDisabled}
@@ -2042,14 +2061,12 @@ export default function MatchDetail() {
           }}
         >
           <div className="text-[13px] font-semibold">{lastTradedBack}</div>
-          <div className="text-[11px] text-[#6C757D]">Back</div>
+          <div className="text-[11px] text-[#0B1B31]">Back</div>
         </button>
         <button
           className={cn(
             tileBase,
-            ui.layBg,
-            ui.layText,
-            "hover:shadow-sm",
+            "bg-[#FDE8EB] text-[#0B1B31] rounded-lg",
             (!hasLay || bettingDisabled) && "opacity-60 cursor-not-allowed"
           )}
           disabled={bettingDisabled || !hasLay}
@@ -2058,20 +2075,19 @@ export default function MatchDetail() {
             onPickRunner(r, market, "LAY");
           }}
         >
-          <div className="text-[13px] font-semibold">{lastTradedLay}</div>
-          <div className="text-[11px] text-[#6C757D]">Lay</div>
+          <div className="text-[14px] font-bold">{lastTradedLay}</div>
+          <div className="text-[11px] text-[#0B1B31] font-semibold">Lay</div>
         </button>
       </div>
     );
   };
 
 
-  // ✅ darker % text
+  // ✅ darker % text (label removed per request)
   const renderProbabilityBar = () => (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-[11px] text-[#0F172A] font-semibold">
         <span className="truncate pr-2">{match.homeTeam} · {homeWinPct.toFixed(1)}%</span>
-        <span className="text-[10px] text-[#374151] font-medium">Implied win chance</span>
         <span className="truncate pl-2 text-right">{awayWinPct.toFixed(1)}% · {match.awayTeam}</span>
       </div>
       <div className="relative h-2 rounded-full bg-[#D9DEE5] overflow-hidden">
@@ -2105,10 +2121,10 @@ export default function MatchDetail() {
     const bettingDisabled = isFinishedMatch || statusText !== "OPEN";
 
     return (
-      <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+      <Card className={cn("border border-[#94A3B8] bg-white shadow-xl", softShadow)}>
         <CardContent className="p-4 space-y-3">
           <div className="flex justify-end">
-            <span className="px-2 py-0.5 rounded-full border border-[#E5E7EB] text-[11px] text-[#6C757D]">
+            <span className="px-2 py-0.5 rounded-full border border-[#94A3B8] text-[11px] text-[#0B1B31] font-semibold">
               {isFinishedMatch ? "FINISHED" : statusText}
             </span>
           </div>
@@ -2138,11 +2154,11 @@ export default function MatchDetail() {
     const disabled = statusText !== "OPEN";
 
     return (
-      <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
+      <Card className={cn("border border-[#CBD5E1] bg-white shadow-lg", softShadow)}>
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-base font-semibold text-[#111827]">Toss Winner</p>
-            <span className="px-2 py-0.5 rounded-full border border-[#E5E7EB] text-[11px] text-[#6C757D]">
+            <p className="text-base font-semibold text-[#0B1B31]">Toss Winner</p>
+            <span className="px-2 py-0.5 rounded-full border border-[#94A3B8] text-[11px] text-[#0B1B31]">
               {statusText}
             </span>
           </div>
@@ -2183,17 +2199,19 @@ export default function MatchDetail() {
   const renderNextDeliveryMarketCompact = () => {
     if (!activeNextBallMarket) {
       return (
-        <Card className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
-          <CardContent className="p-3 text-[12px] text-[#6C757D]">No next-ball market right now.</CardContent>
+        <Card className={cn("border border-[#CBD5E1] bg-white shadow-lg", softShadow)}>
+          <CardContent className="p-3 text-[12px] text-[#0B1B31] font-semibold">No next-ball market right now.</CardContent>
         </Card>
       );
     }
 
     const over = toNum((activeNextBallMarket as any).ro_over_number ?? (activeNextBallMarket as any).over_number ?? 0, 0);
     const ball = toNum((activeNextBallMarket as any).ro_ball_number ?? (activeNextBallMarket as any).ball_number ?? 1, 1);
+    const fallbackClose = new Date(Date.now() + 25_000).toISOString();
+    const displayMarket = { ...activeNextBallMarket, close_time: (activeNextBallMarket as any).close_time ?? fallbackClose };
     return (
       <CompactMarketGrid
-        market={activeNextBallMarket}
+        market={displayMarket as any}
         title={`Next Delivery Result • Over ${over} · Ball ${ball}`}
         onPick={onPickOutcome}
         selectedOutcomeId={selectedMarket?.id === activeNextBallMarket.id ? selectedOutcome?.id : null}
@@ -2384,7 +2402,7 @@ export default function MatchDetail() {
     <AppShell hideHeader hideBottomNav fullBleed>
       <div className={cn("min-h-screen pb-24", ui.bg)}>
         <div className="max-w-5xl mx-auto px-3 sm:px-4 pt-3 space-y-2">
-          <Card className={cn("rounded-2xl border px-3 sm:px-4 py-3", ui.card, ui.border, softShadow)}>
+          <Card className={cn("rounded-2xl border border-[#94A3B8] px-3 sm:px-4 py-3 shadow-xl", ui.card, ui.border, softShadow)}>
             <CardContent className="p-0 space-y-2">
               <div className="flex items-center gap-2 text-[11px] text-[#6C757D]">
                 <button

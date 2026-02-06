@@ -47,30 +47,35 @@ export function Navbar() {
   );
 
   return (
-    <nav className="h-16 border-b bg-sidebar px-4 flex items-center justify-between sticky top-0 z-50 shadow-md">
+    <nav className="h-16 border-b border-[#E5E0D6] bg-[#FDFBF6] px-4 flex items-center justify-between sticky top-0 z-50 shadow-sm">
       <div className="flex items-center gap-4">
         <Sheet open={isOpen} onOpenChange={setIsOpen}>
           <SheetTrigger asChild className="md:hidden">
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" className="text-[#1F2733] hover:text-[#0B8A5F]">
               <Menu className="h-5 w-5" />
             </Button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-64 p-4 bg-sidebar border-r border-border">
-            <div className="mb-8">
-              <h1 className="font-heading text-2xl font-bold tracking-tighter text-primary">PROBET<span className="text-white">X</span></h1>
+          <SheetContent side="left" className="w-64 p-4 bg-[#FDFBF6] border-r border-[#E5E0D6]">
+            <div className="mb-6">
+              <h1 className="text-2xl font-extrabold tracking-tight text-[#0B8A5F]">CricFun</h1>
+              <p className="text-sm text-[#7A7F87]">Exchange &amp; Plays</p>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 text-[#1F2733]">
               <NavItems />
-              <Button variant="ghost" className="justify-start gap-3 px-3 text-red-400 hover:text-red-500 hover:bg-red-950/20 mt-4" onClick={handleLogout}>
+              <Button
+                variant="ghost"
+                className="justify-start gap-3 px-3 text-[#B91C1C] hover:text-[#991B1B] hover:bg-[#FEF2F2] mt-4"
+                onClick={handleLogout}
+              >
                 <LogOut className="h-4 w-4" /> Logout
               </Button>
             </div>
           </SheetContent>
         </Sheet>
-        
+
         <Link href="/">
           <div className="flex items-center gap-1 cursor-pointer">
-            <h1 className="font-heading text-2xl font-bold tracking-tighter text-primary neon-glow">PROBET<span className="text-foreground">X</span></h1>
+            <h1 className="text-2xl font-extrabold tracking-tight text-[#0B8A5F]">CricFun</h1>
           </div>
         </Link>
 
@@ -82,37 +87,42 @@ export function Navbar() {
       {currentUser ? (
         <div className="flex items-center gap-4">
           <div className="hidden sm:flex flex-col items-end mr-2">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground uppercase tracking-wider font-bold">
+            <div className="flex items-center gap-1.5 text-xs text-[#7A7F87] uppercase tracking-wider font-semibold">
               <Wallet className="h-3 w-3" /> Balance
             </div>
-            <div className="font-mono text-primary font-bold text-lg leading-none">
+            <div className="font-mono text-[#0B8A5F] font-bold text-lg leading-none">
               {currentUser.currency} {currentUser.balance.toLocaleString()}
             </div>
           </div>
-          
+
           <div className="hidden sm:flex flex-col items-end">
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground uppercase tracking-wider font-bold">
+            <div className="flex items-center gap-1.5 text-xs text-[#7A7F87] uppercase tracking-wider font-semibold">
               <ShieldAlert className="h-3 w-3" /> Exposure
             </div>
-            <div className="font-mono text-destructive font-bold text-lg leading-none">
+            <div className="font-mono text-[#D92148] font-bold text-lg leading-none">
               {currentUser.exposure > 0 ? '-' : ''}{currentUser.currency} {currentUser.exposure.toLocaleString()}
             </div>
           </div>
 
           <div className="flex items-center gap-3">
-             <div className="h-9 w-9 rounded-full bg-accent flex items-center justify-center border border-accent-foreground/10 text-accent-foreground font-bold" title={currentUser.username}>
+            <div
+              className="h-9 w-9 rounded-full bg-[#ECFDF5] flex items-center justify-center border border-[#C1F0D6] text-[#0B8A5F] font-bold"
+              title={currentUser.username}
+            >
               {currentUser.username[0].toUpperCase()}
             </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="text-muted-foreground hover:text-foreground">
+            <Button variant="ghost" size="icon" onClick={handleLogout} className="text-[#7A7F87] hover:text-[#0B8A5F]">
               <LogOut className="h-5 w-5" />
             </Button>
           </div>
         </div>
       ) : (
         <div className="flex items-center gap-2">
-           <Link href="/login">
-             <Button variant="default" className="font-bold">Login</Button>
-           </Link>
+          <Link href="/login">
+            <Button variant="default" className="font-bold bg-[#0B8A5F] hover:bg-[#0A7A55] text-white">
+              Login
+            </Button>
+          </Link>
         </div>
       )}
     </nav>

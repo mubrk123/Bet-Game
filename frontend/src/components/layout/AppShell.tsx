@@ -28,16 +28,10 @@ export function AppShell({
   );
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {!hideHeader && (isMobile ? <MobileHeader /> : <Navbar />)}
+    <div className="min-h-screen bg-[#F7F5EF] text-[#1F2733] flex flex-col">
+      {/* Header removed per new design */}
       <main className={mainClass}>{children}</main>
       {!hideBottomNav && <BottomNav />}
-      {!hideHeader && (
-        <footer className="hidden md:block border-t py-6 text-center text-sm text-muted-foreground bg-card/50">
-          <p>© 2025 ProBetX Exchange. All rights reserved.</p>
-          <p className="text-xs mt-1 opacity-50">Authorized for Mockup Demonstration Only</p>
-        </footer>
-      )}
     </div>
   );
 }

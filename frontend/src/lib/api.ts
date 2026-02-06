@@ -302,6 +302,39 @@ function mapToUiInstanceMarket(market: any): ApiInstanceMarket {
 // ============================================================================
 
 class ApiClient {
+  private async extractErrorMessage(error: any, fallback: string) {
+    // Supabase errors wrap the fetch response under error.context.response
+    const resp: any = error?.context?.response;
+    if (resp) {
+      // Try JSON first
+      try {
+        const clone = resp.clone ? resp.clone() : resp;
+        const json = await clone.json();
+        if (json?.error) return String(json.error);
+        if (json?.message) return String(json.message);
+        if (json?.msg) return String(json.msg);
+      } catch {
+        // ignore and try text
+      }
+
+      try {
+        const clone = resp.clone ? resp.clone() : resp;
+        const txt = await clone.text();
+        if (txt) return txt;
+      } catch {
+        /* ignore */
+      }
+
+      if (resp.status && resp.statusText) {
+        return `${resp.status} ${resp.statusText}`;
+      }
+    }
+
+    if (error?.details) return String(error.details);
+    if (error?.message) return String(error.message);
+    return fallback;
+  }
+
   // Generic edge-function invoker with friendly errors/unwrapping
   private async invokeFunction<T>(
     name: string,
@@ -310,7 +343,8 @@ class ApiClient {
     const { data, error } = await supabase.functions.invoke(name, { body });
 
     if (error) {
-      throw new Error(error.message || `Failed to call ${name}`);
+      const message = await this.extractErrorMessage(error, `Failed to call ${name}`);
+      throw new Error(message);
     }
 
     // Edge functions use { success, data, error }
@@ -602,15 +636,11 @@ class ApiClient {
     outcomeId: string;
     stake: number;
   }) {
-    const { data, error } = await supabase.functions.invoke("place-bet", {
-      body: {
-        market_id: payload.marketId,
-        outcome_id: payload.outcomeId,
-        stake: payload.stake,
-      },
+    return this.invokeFunction("place-bet", {
+      market_id: payload.marketId,
+      outcome_id: payload.outcomeId,
+      stake: payload.stake,
     });
-    if (error) throw error;
-    return data;
   }
 
   async placeBet(payload: {
@@ -622,22 +652,15 @@ class ApiClient {
     odds: string | number;
     stake: string | number;
   }) {
-    const { data, error } = await supabase.functions.invoke("place-bet", {
-      body: {
-        market_id: payload.marketId,
-        runner_id: payload.runnerId,
-        type: payload.type,
-        odds: Number(payload.odds),
-        stake: Number(payload.stake),
-        runner_name: payload.runnerName,
-        match_id: payload.matchId,
-      },
+    return this.invokeFunction("place-bet", {
+      market_id: payload.marketId,
+      runner_id: payload.runnerId,
+      type: payload.type,
+      odds: Number(payload.odds),
+      stake: Number(payload.stake),
+      runner_name: payload.runnerName,
+      match_id: payload.matchId,
     });
-    if (error) throw error;
-    if ((data as any)?.success === false) {
-      throw new Error((data as any)?.error || "Failed to place bet");
-    }
-    return ((data as any)?.data ?? data);
   }
 async getUserBets(): Promise<{ bets: ApiBet[] }> {
   // 1) Ensure logged in (this throws "Not authenticated" if missing)

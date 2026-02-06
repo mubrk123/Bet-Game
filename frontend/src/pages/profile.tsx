@@ -65,7 +65,7 @@ function getLoyalty(balance: number) {
 
 function SectionHeader({ title }: { title: string }) {
   return (
-    <div className="px-1 pt-2 pb-1 text-[11px] uppercase tracking-wider text-muted-foreground/80">
+    <div className="px-1 pt-2 pb-1 text-[11px] uppercase tracking-wider text-[#7A7F87]/80">
       {title}
     </div>
   );
@@ -86,15 +86,15 @@ function MenuRow({
     <Link href={href}>
       <div className="group flex items-center justify-between py-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="h-9 w-9 rounded-xl bg-muted/20 flex items-center justify-center border border-border/40">
-            <Icon className="h-4.5 w-4.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+          <div className="h-9 w-9 rounded-xl bg-[#F7F5EF] flex items-center justify-center border border-[#E5E0D6]">
+            <Icon className="h-4.5 w-4.5 text-[#7A7F87] group-hover:text-foreground transition-colors" />
           </div>
           <div className="min-w-0">
             <div className="text-sm font-medium truncate">{label}</div>
-            {desc ? <div className="text-xs text-muted-foreground truncate">{desc}</div> : null}
+            {desc ? <div className="text-sm text-[#475569] font-semibold truncate">{desc}</div> : null}
           </div>
         </div>
-        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+        <ChevronRight className="h-4 w-4 text-[#7A7F87] group-hover:text-foreground transition-colors" />
       </div>
     </Link>
   );
@@ -125,7 +125,7 @@ export default function Profile() {
       <AppShell>
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
           <h2 className="text-xl font-bold mb-2">Not Logged In</h2>
-          <p className="text-muted-foreground mb-4">Please login to view your profile</p>
+          <p className="text-[#7A7F87] mb-4">Please login to view your profile</p>
           <Link href="/login">
             <Button>Login</Button>
           </Link>
@@ -162,15 +162,9 @@ export default function Profile() {
 
   return (
     <AppShell>
-      <div className="space-y-6 pb-24">
+      <div className="space-y-6 pb-16">
         {/* HEADER: identity + status */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-card/40 backdrop-blur">
-          {/* subtle curved/gradient background */}
-          <div className="absolute inset-0 opacity-80">
-            <div className="absolute -top-20 left-1/2 h-60 w-60 -translate-x-1/2 rounded-full bg-primary/10 blur-2xl" />
-            <div className="absolute -bottom-24 -right-16 h-72 w-72 rounded-full bg-emerald-500/10 blur-2xl" />
-          </div>
-
+        <div className="relative overflow-hidden rounded-2xl border border-[#94A3B8] bg-white shadow-xl">
           <div className="relative p-5">
               <div className="flex items-center gap-4">
                 {/* avatar with level ring */}
@@ -181,40 +175,32 @@ export default function Profile() {
                     loyalty.ringClass
                   )}
                   >
-                    <div className="h-16 w-16 rounded-full bg-background/70 border border-border/40 flex items-center justify-center">
-                      <div className="text-2xl font-bold text-primary">{initials}</div>
+                    <div className="h-16 w-16 rounded-full bg-white border border-[#CBD5E1] shadow-inner flex items-center justify-center">
+                      <div className="text-2xl font-black text-[#0B8A5F]">{initials}</div>
                     </div>
                   </div>
                 </div>
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h1 className="text-xl font-extrabold tracking-tight truncate">
+                    <h1 className="text-2xl font-black tracking-tight truncate text-[#0B1B31]">
                     {currentUser.username}
                   </h1>
-                  <span
-                    className={cn(
-                      "text-[11px] px-2 py-1 rounded-full border",
-                      loyalty.badgeClass
-                    )}
-                  >
-                    {loyalty.tierName} Member
-                  </span>
                 </div>
 
                 {/* progress */}
                 <div className="mt-2">
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <div className="flex items-center justify-between text-sm text-[#0B1B31] font-semibold">
                     <span>VIP Progress</span>
                     <span className="font-mono">{loyalty.points} pts</span>
                   </div>
-                  <div className="mt-2 h-2 rounded-full bg-muted/25 border border-border/40 overflow-hidden">
+                  <div className="mt-2 h-3 rounded-full bg-[#E5E0D6] border border-[#E5E0D6] overflow-hidden">
                     <div
-                      className="h-full bg-primary/60"
+                      className="h-full bg-[#0B8A5F]"
                       style={{ width: `${Math.round(loyalty.progress * 100)}%` }}
                     />
                   </div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
+                  <div className="mt-1 text-[12px] text-[#0B1B31] font-semibold">
                     {loyalty.toNext > 0
                       ? `${loyalty.toNext} pts to ${loyalty.nextTierName} VIP`
                       : "Top tier unlocked"}
@@ -228,14 +214,14 @@ export default function Profile() {
         {/* FINANCIAL DASHBOARD */}
         <div className="grid grid-cols-2 gap-3">
           {/* Balance card with inline Deposit */}
-          <Card className="overflow-hidden border border-border/40 bg-gradient-to-br from-emerald-500/18 to-emerald-500/5">
+          <Card className="overflow-hidden border border-[#CBD5E1] bg-white shadow-lg">
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <div className="text-[10px] uppercase tracking-wider text-[#1F2937] font-semibold">
                     Available Balance
                   </div>
-                  <div className="mt-1 text-lg font-extrabold text-emerald-300">
+                  <div className="mt-1 text-2xl font-black text-[#0B8A5F]">
                     {formatMoney(currency, currentUser.balance)}
                   </div>
                 </div>
@@ -243,15 +229,15 @@ export default function Profile() {
                 <Link href="/withdrawals">
                   <button
                     type="button"
-                    className="h-9 w-9 rounded-xl bg-background/60 border border-border/40 flex items-center justify-center hover:bg-background/80 transition"
+                    className="h-9 w-9 rounded-xl bg-white border border-[#CBD5E1] shadow-inner flex items-center justify-center hover:bg-[#ECFDF5] transition"
                     aria-label="Deposit"
                     title="Deposit"
                   >
-                    <Plus className="h-4 w-4 text-emerald-300" />
+                    <Plus className="h-4 w-4 text-[#0B8A5F]" />
                   </button>
                 </Link>
               </div>
-              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="mt-3 flex items-center gap-2 text-sm text-[#0B1B31] font-semibold">
                 <Wallet className="h-4 w-4" />
                 <span>Tap + to deposit</span>
               </div>
@@ -259,35 +245,35 @@ export default function Profile() {
           </Card>
 
           {/* Exposure card with info tooltip */}
-          <Card className="overflow-hidden border border-border/40 bg-gradient-to-br from-red-500/18 to-red-500/5">
+          <Card className="overflow-hidden border border-[#CBD5E1] bg-white shadow-lg">
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <div className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-[#1F2937] font-semibold">
                     Current Exposure
                     <button
                       type="button"
                       onClick={() => setShowExposureInfo((v) => !v)}
-                      className="inline-flex items-center justify-center h-5 w-5 rounded-full hover:bg-background/30 transition"
+                      className="inline-flex items-center justify-center h-5 w-5 rounded-full hover:bg-[#ECFDF5] transition"
                       aria-label="Exposure info"
                     >
-                      <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                      <Info className="h-3.5 w-3.5 text-[#4B5563]" />
                     </button>
                   </div>
-                  <div className="mt-1 text-lg font-extrabold text-red-300">
+                  <div className="mt-1 text-2xl font-black text-[#B91C1C]">
                     {formatMoney(currency, currentUser.exposure)}
                   </div>
                 </div>
 
-                <TrendingUp className="h-5 w-5 text-red-300/80" />
+                <TrendingUp className="h-5 w-5 text-[#D92148]/80" />
               </div>
 
               {showExposureInfo ? (
-                <div className="mt-3 text-xs text-muted-foreground leading-snug">
+                <div className="mt-3 text-sm text-[#0B1B31] font-semibold leading-snug">
                   Exposure is the amount currently locked in open bets (liability / risk).
                 </div>
               ) : (
-                <div className="mt-3 text-xs text-muted-foreground">
+                <div className="mt-3 text-sm text-[#0B1B31] font-semibold">
                   Funds locked in bets
                 </div>
               )}
@@ -299,47 +285,47 @@ export default function Profile() {
         <div className="grid grid-cols-3 gap-3">
           <Link href="/withdrawals">
             <div className="flex flex-col items-center gap-2">
-              <div className="h-12 w-12 rounded-2xl bg-primary/12 border border-primary/20 flex items-center justify-center">
-                <ArrowDownToLine className="h-5 w-5 text-primary" />
+              <div className="h-12 w-12 rounded-2xl bg-[#ECFDF5] border border-[#0B8A5F]/40 flex items-center justify-center shadow-md">
+                <ArrowDownToLine className="h-5 w-5 text-[#0B8A5F]" />
               </div>
-              <div className="text-[11px] text-muted-foreground">Deposit</div>
+              <div className="text-[12px] text-[#0B1B31] font-semibold">Deposit</div>
             </div>
           </Link>
 
           <Link href="/withdrawals">
             <div className="flex flex-col items-center gap-2">
-              <div className="h-12 w-12 rounded-2xl bg-muted/18 border border-border/40 flex items-center justify-center">
-                <ArrowUpFromLine className="h-5 w-5 text-foreground/80" />
+              <div className="h-12 w-12 rounded-2xl bg-[#FEF2F2] border border-[#D92148]/40 flex items-center justify-center shadow-md">
+                <ArrowUpFromLine className="h-5 w-5 text-[#B91C1C]" />
               </div>
-              <div className="text-[11px] text-muted-foreground">Withdraw</div>
+              <div className="text-[12px] text-[#0B1B31] font-semibold">Withdraw</div>
             </div>
           </Link>
 
           <Link href="/my-bets">
             <div className="flex flex-col items-center gap-2">
-              <div className="h-12 w-12 rounded-2xl bg-muted/18 border border-border/40 flex items-center justify-center">
-                <Ticket className="h-5 w-5 text-foreground/80" />
+              <div className="h-12 w-12 rounded-2xl bg-[#EEF2FF] border border-[#6366F1]/40 flex items-center justify-center shadow-md">
+                <Ticket className="h-5 w-5 text-[#4338CA]" />
               </div>
-              <div className="text-[11px] text-muted-foreground">Bet History</div>
+              <div className="text-[12px] text-[#0B1B31] font-semibold">Bet History</div>
             </div>
           </Link>
         </div>
 
         {/* RECENT RESULTS */}
-        <Card className="border border-border/40 bg-card/50">
+        <Card className="border border-[#CBD5E1] bg-white shadow-lg">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                <div className="text-[11px] uppercase tracking-wide text-[#1F2937] font-semibold">
                   Notifications
                 </div>
-                <h3 className="text-base font-semibold">Recent wins / losses</h3>
+                <h3 className="text-base font-bold text-[#0B1B31]">Recent wins / losses</h3>
               </div>
-              <TrendingUp className="h-5 w-5 text-primary/90" />
+              <TrendingUp className="h-5 w-5 text-[#0B8A5F]/90" />
             </div>
 
             {recentSettled.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No recent bet results yet.</p>
+              <p className="text-sm text-[#0B1B31] font-semibold">No recent bet results yet.</p>
             ) : (
               <div className="space-y-2">
                 {recentSettled.map((bet) => {
@@ -352,15 +338,15 @@ export default function Profile() {
                   return (
                     <div
                       key={bet.id}
-                      className="flex items-start justify-between gap-3 rounded-xl border border-border/40 bg-muted/10 px-3 py-2.5"
+                      className="flex items-start justify-between gap-3 rounded-xl border border-[#CBD5E1] bg-white px-3 py-3 shadow-md"
                     >
                       <div className="min-w-0">
-                        <div className="text-xs text-muted-foreground truncate">{matchName}</div>
-                        <div className="text-sm font-semibold truncate">
+                        <div className="text-sm text-[#0B1B31] font-bold truncate">{matchName}</div>
+                        <div className="text-sm font-semibold text-[#0F172A] truncate">
                           {bet?.selectionName || bet?.runner_name || "Selection"}
                         </div>
                         {timeText ? (
-                          <div className="text-[11px] text-muted-foreground/80">
+                          <div className="text-[12px] text-[#1F2937] font-medium">
                             {new Date(timeText).toLocaleString()}
                           </div>
                         ) : null}
@@ -370,8 +356,8 @@ export default function Profile() {
                           className={cn(
                             "inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold",
                             isWin
-                              ? "bg-emerald-500/15 text-emerald-200 border border-emerald-500/30"
-                              : "bg-red-500/10 text-red-200 border border-red-500/25"
+                              ? "bg-[#ECFDF5] text-[#0B8A5F] border border-[#0B8A5F]"
+                              : "bg-[#FEF2F2] text-[#B91C1C] border border-[#FCA5A5]"
                           )}
                         >
                           {isWin ? "WON" : "LOST"}
@@ -379,7 +365,7 @@ export default function Profile() {
                         <div
                           className={cn(
                             "mt-1 text-sm font-mono",
-                            isWin ? "text-emerald-300" : "text-red-300"
+                            isWin ? "text-[#0B8A5F]" : "text-[#D92148]"
                           )}
                         >
                           {isWin ? "+" : "-"}
@@ -395,7 +381,7 @@ export default function Profile() {
         </Card>
 
         {/* MENU LIST (Grouped, light separators) */}
-        <div className="rounded-2xl border border-border/40 bg-card/40 backdrop-blur px-4 py-3">
+        <div className="rounded-2xl border border-[#CBD5E1] bg-white backdrop-blur px-4 py-3 shadow-lg">
           <SectionHeader title="Finance" />
           <div className="divide-y divide-border/20">
             <MenuRow
@@ -414,10 +400,10 @@ export default function Profile() {
             type="button"
             onClick={handleLogout}
             data-testid="button-logout"
-            className="w-full flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground hover:text-red-300 transition"
+            className="w-full flex items-center justify-center gap-2 py-3 text-sm text-[#7A7F87] hover:text-[#D92148] transition"
           >
             <LogOut className="h-4 w-4" />
-            Log Out <span className="text-xs text-muted-foreground/70">v1.0.4</span>
+            Log Out <span className="text-sm text-[#475569] font-semibold/70">v1.0.4</span>
           </button>
         </div>
       </div>

@@ -26,10 +26,10 @@ function SegmentedControl({
 }) {
   return (
     <div className="w-full">
-      <div className="relative mx-auto w-full max-w-[360px] rounded-lg bg-muted/20 p-0.5 border border-border/30">
+      <div className="relative mx-auto w-full max-w-[360px] rounded-full bg-[#FDFBF6] p-0.5 border border-[#E5E0D6] shadow-inner">
         <div
           className={cn(
-            "absolute top-0.5 bottom-0.5 w-1/2 rounded-md bg-background shadow-sm transition-transform duration-200",
+            "absolute top-0.5 bottom-0.5 w-1/2 rounded-full bg-white shadow-sm transition-transform duration-200",
             value === "OPEN" ? "translate-x-0" : "translate-x-full"
           )}
         />
@@ -37,8 +37,8 @@ function SegmentedControl({
           type="button"
           onClick={() => onChange("OPEN")}
           className={cn(
-            "relative z-10 w-1/2 rounded-md py-2 text-xs font-medium transition-colors",
-            value === "OPEN" ? "text-foreground" : "text-muted-foreground"
+            "relative z-10 w-1/2 rounded-full py-2 text-xs font-semibold transition-colors",
+            value === "OPEN" ? "text-[#0B8A5F]" : "text-[#7A7F87]"
           )}
         >
           OPEN
@@ -47,8 +47,8 @@ function SegmentedControl({
           type="button"
           onClick={() => onChange("SETTLED")}
           className={cn(
-            "relative z-10 w-1/2 rounded-md py-2 text-xs font-medium transition-colors",
-            value === "SETTLED" ? "text-foreground" : "text-muted-foreground"
+            "relative z-10 w-1/2 rounded-full py-2 text-xs font-semibold transition-colors",
+            value === "SETTLED" ? "text-[#0B8A5F]" : "text-[#7A7F87]"
           )}
         >
           SETTLED
@@ -66,11 +66,11 @@ function SmallBadge({
   variant?: "default" | "success" | "destructive" | "warning" | "info";
 }) {
   const variantClasses = {
-    default: "bg-muted/50 text-muted-foreground border-border/50",
-    success: "bg-emerald-500/10 text-emerald-300 border-emerald-500/20",
-    destructive: "bg-red-500/10 text-red-300 border-red-500/20",
-    warning: "bg-amber-500/10 text-amber-300 border-amber-500/20",
-    info: "bg-blue-500/10 text-blue-300 border-blue-500/20",
+    default: "bg-[#E2E8F0] text-[#0F172A] border-[#CBD5E1]",
+    success: "bg-[#ECFDF5] text-[#0B8A5F] border-[#10B981]",
+    destructive: "bg-[#FEF2F2] text-[#B91C1C] border-[#FCA5A5]",
+    warning: "bg-[#FFF7ED] text-[#B45309] border-[#FDBA74]",
+    info: "bg-[#E0F2FE] text-[#0369A1] border-[#7DD3FC]",
   };
 
   return (
@@ -99,12 +99,12 @@ function StatPills({
       {items.map((it, idx) => (
         <div
           key={idx}
-          className="rounded-full border border-border/30 bg-muted/15 px-3 py-2"
+          className="rounded-full border border-[#D7DDE5] bg-white px-3 py-2 shadow-sm"
         >
-          <div className="text-[10px] text-muted-foreground leading-none">
+          <div className="text-[10px] text-[#475569] leading-none font-semibold">
             {it.label}
           </div>
-          <div className={cn("mt-1 text-xs font-semibold font-mono", it.valueClassName)}>
+          <div className={cn("mt-1 text-sm font-semibold font-mono text-[#0F172A]", it.valueClassName)}>
             {it.value}
           </div>
         </div>
@@ -216,7 +216,7 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
     };
 
   return (
-    <div className="relative overflow-hidden rounded-lg border border-border/40 bg-card/50 hover:bg-card/70 transition-colors">
+    <div className="relative overflow-hidden rounded-2xl border border-[#CBD5E1] bg-white hover:bg-[#F7F5EF] transition-all shadow-lg scale-[1.01]">
       <div
         className={cn(
           "absolute left-0 top-0 bottom-0 w-1",
@@ -225,19 +225,19 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
               ? "bg-emerald-500/60"
               : isLost
                 ? "bg-red-500/60"
-                : "bg-muted-foreground/30"
+                : "bg-[#CBD5E1]"
             : isBack
-              ? "bg-blue-500/60"
-              : "bg-pink-500/60"
+              ? "bg-[#0EA5E9]"
+              : "bg-[#EF4444]"
         )}
       />
 
       {/* tighter / thinner */}
-      <div className="p-2.5 pl-4">
-        <div className="flex items-start justify-between gap-2">
+      <div className="p-4 pl-4">
+        <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <h3 className="text-sm font-medium truncate" title={matchName}>
+              <h3 className="text-[15px] font-bold text-[#0F172A] truncate" title={matchName}>
                 {matchName}
               </h3>
               <SmallBadge variant={variant === "OPEN" ? "info" : "default"}>
@@ -246,10 +246,10 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
             </div>
 
             <div className="mt-0.5 flex items-center gap-2 min-w-0">
-              <span className="text-xs font-semibold text-foreground/90 truncate">
+              <span className="text-sm font-semibold text-[#0F172A] truncate">
                 {selectionName}
               </span>
-              <span className="text-[10px] text-muted-foreground/80 truncate">
+              <span className="text-[12px] text-[#475569] truncate">
                 {marketName}
               </span>
             </div>
@@ -265,17 +265,17 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
           </div>
 
           <div className="flex flex-col items-end gap-1 shrink-0">
-            <div
+            <span
               className={cn(
-                "px-2 py-0.5 rounded text-[10px] font-semibold border",
+                "px-3 py-1 rounded-full text-[12px] font-bold border shadow-sm",
                 isBack
-                  ? "border-blue-500/30 bg-blue-500/10 text-blue-300"
-                  : "border-pink-500/30 bg-pink-500/10 text-pink-300"
+                  ? "border-[#0B8A5F] bg-[#ECFDF5] text-[#0B8A5F]"
+                  : "border-[#D92148] bg-[#FEF2F2] text-[#D92148]"
               )}
               title={`${betTypeLabel} @ ${odds.toFixed(2)}`}
             >
               {betTypeLabel} @ {odds.toFixed(2)}
-            </div>
+            </span>
             <SmallBadge variant={statusInfo.variant}>{statusInfo.label}</SmallBadge>
           </div>
         </div>
@@ -292,20 +292,20 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
                 {
                   label: "Potential Return",
                   value: formatINR(grossPayout),
-                  valueClassName: isBack ? "text-emerald-300" : "text-foreground",
+                  valueClassName: isBack ? "text-[#0B8A5F]" : "text-[#0F172A]",
                 },
                 {
                   label: "Risk / Reward",
                   value: formatINR(isLay ? liability : potentialProfit),
-                  valueClassName: isLay ? "text-pink-300" : "text-amber-300",
+                  valueClassName: isLay ? "text-[#D92148]" : "text-[#B45309]",
                 },
               ]}
             />
-            <div className="mt-2 flex items-center justify-between border-t border-border/20 pt-1">
-              <span className="text-[10px] text-muted-foreground">{timeText}</span>
-              <span className="text-[10px] text-muted-foreground">
+            <div className="mt-3 flex items-center justify-between border-t border-[#E2E8F0] pt-2">
+              <span className="text-[11px] text-[#475569] font-medium">{timeText}</span>
+              <span className="text-[11px] text-[#475569]">
                 {/* show exactly what user chose */}
-                Selected: <span className="text-foreground/80">{selectionName}</span>
+                Selected: <span className="font-semibold text-[#0F172A]">{selectionName}</span>
               </span>
             </div>
           </div>
@@ -313,32 +313,32 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
           // SETTLED: show chosen + actual outcome + pnl (compact), no ID
           <div className="mt-2">
             <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-full border border-border/30 bg-muted/15 px-3 py-2">
-                <div className="text-[10px] text-muted-foreground leading-none">
+              <div className="rounded-full border border-[#E5E0D6] bg-white px-3 py-2 shadow-sm">
+                <div className="text-[10px] text-[#475569] leading-none font-semibold">
                   You Picked
                 </div>
-                <div className="mt-1 text-xs font-semibold truncate">{selectionName}</div>
+                <div className="mt-1 text-xs font-semibold truncate text-[#0F172A]">{selectionName}</div>
               </div>
 
-              <div className="rounded-full border border-border/30 bg-muted/15 px-3 py-2">
-                <div className="text-[10px] text-muted-foreground leading-none">
+              <div className="rounded-full border border-[#E5E0D6] bg-white px-3 py-2 shadow-sm">
+                <div className="text-[10px] text-[#475569] leading-none font-semibold">
                   Actual Outcome
                 </div>
-                <div className="mt-1 text-xs font-semibold truncate">
+                <div className="mt-1 text-xs font-semibold truncate text-[#0F172A]">
                   {actualOutcome ? String(actualOutcome) : "—"}
                 </div>
               </div>
 
-              <div className="rounded-full border border-border/30 bg-muted/15 px-3 py-2">
-                <div className="text-[10px] text-muted-foreground leading-none">P/L</div>
+              <div className="rounded-full border border-[#E5E0D6] bg-white px-3 py-2 shadow-sm">
+                <div className="text-[10px] text-[#475569] leading-none font-semibold">P/L</div>
                 <div
                   className={cn(
                     "mt-1 text-xs font-semibold font-mono",
                     pnl > 0
-                      ? "text-emerald-300"
+                      ? "text-[#0B8A5F]"
                       : pnl < 0
-                        ? "text-red-300"
-                        : "text-muted-foreground"
+                        ? "text-[#D92148]"
+                        : "text-[#475569]"
                   )}
                 >
                   {pnl > 0 ? "+" : ""}
@@ -347,11 +347,11 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
               </div>
             </div>
 
-            <div className="mt-2 flex items-center justify-between border-t border-border/20 pt-1">
-              <span className="text-[10px] text-muted-foreground">
+            <div className="mt-3 flex items-center justify-between border-t border-[#E2E8F0] pt-2">
+              <span className="text-[11px] text-[#0F172A] font-semibold">
                 {settledText ? `Settled ${settledText}` : timeText}
               </span>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[11px] text-[#0F172A] font-semibold">
                 Stake <span className="font-mono">{formatINR(stake)}</span>
                 {commission > 0 && (
                   <>
@@ -422,39 +422,39 @@ function CompactStatsBarPills({
           {
             label: "Open Stake",
             value: formatINR(openStats.totalStake),
-            valueClassName: "text-foreground",
+            valueClassName: "text-[#0F172A]",
           },
           {
             label: "Potential Return",
             value: formatINR(openStats.totalPotential),
-            valueClassName: "text-emerald-300",
+            valueClassName: "text-[#0B8A5F]",
           },
           {
             label: "Risk / Reward",
             value: formatINR(openStats.totalPotential - openStats.totalStake),
-            valueClassName: "text-amber-300",
+            valueClassName: "text-[#B45309]",
           },
         ]
       : [
           {
             label: "Total Wagered",
             value: formatINR(settledStats.totalWagered),
-            valueClassName: "text-foreground",
+            valueClassName: "text-[#0F172A]",
           },
           {
             label: "Net P/L",
             value: `${settledStats.totalPnl > 0 ? "+" : ""}${formatINR(settledStats.totalPnl)}`,
             valueClassName:
               settledStats.totalPnl > 0
-                ? "text-emerald-300"
+                ? "text-[#0B8A5F]"
                 : settledStats.totalPnl < 0
-                  ? "text-red-300"
-                  : "text-foreground",
+                  ? "text-[#D92148]"
+                  : "text-[#0F172A]",
           },
           {
             label: "Win Rate",
             value: `${settledStats.winRate.toFixed(1)}%`,
-            valueClassName: "text-foreground",
+            valueClassName: "text-[#0F172A]",
           },
         ];
 
@@ -490,45 +490,41 @@ export default function MyBets() {
 
     return (
       <AppShell>
-        <div className="container mx-auto px-3 py-2 max-w-5xl">
-          <Card className="border-border/40 shadow-xs">
-            <CardContent className="py-3">
-              <div className="mb-3">
-                <SegmentedControl value={tab} onChange={setTab} />
+        <div className="container mx-auto px-3 py-2 max-w-5xl space-y-3">
+          <div className="mb-1">
+            <SegmentedControl value={tab} onChange={setTab} />
+          </div>
+
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm">
+            <div className="text-sm font-semibold text-[#B91C1C]">
+              Failed to load bets
+            </div>
+            <div className="mt-1 text-xs text-[#991B1B]">{msg}</div>
+
+            {isAuth && (
+              <div className="mt-3 text-xs text-[#991B1B]/80">
+                You’re not logged in on this page. Login first, then come back.
               </div>
+            )}
 
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
-                <div className="text-sm font-semibold text-red-200">
-                  Failed to load bets
-                </div>
-                <div className="mt-1 text-xs text-red-200/80">{msg}</div>
+            <div className="mt-3 text-xs text-[#475569]">
+              If this says “permission denied”, you need a Supabase RLS SELECT policy on{" "}
+              <span className="font-mono">bets</span> for{" "}
+              <span className="font-mono">user_id = auth.uid()</span>.
+            </div>
 
-                {isAuth && (
-                  <div className="mt-3 text-xs text-red-200/70">
-                    You’re not logged in on this page. Login first, then come back.
-                  </div>
-                )}
-
-                <div className="mt-3 text-xs text-muted-foreground">
-                  If this says “permission denied”, you need a Supabase RLS SELECT policy on{" "}
-                  <span className="font-mono">bets</span> for{" "}
-                  <span className="font-mono">user_id = auth.uid()</span>.
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => refetch()}
-                  disabled={isFetching}
-                  className={cn(
-                    "mt-3 w-full rounded-md border border-border/40 bg-background/50 py-2 text-xs font-medium",
-                    "hover:bg-background/70 transition-colors disabled:opacity-60"
-                  )}
-                >
-                  {isFetching ? "Refreshing..." : "Retry"}
-                </button>
-              </div>
-            </CardContent>
-          </Card>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className={cn(
+                "mt-3 w-full rounded-md border border-[#D7DDE5] bg-white py-2 text-xs font-semibold text-[#0B8A5F]",
+                "hover:bg-[#ECFDF5] transition-colors disabled:opacity-60"
+              )}
+            >
+              {isFetching ? "Refreshing..." : "Retry"}
+            </button>
+          </div>
         </div>
       </AppShell>
     );
@@ -566,50 +562,45 @@ export default function MyBets() {
   return (
     <AppShell>
       {/* shifted up: smaller top padding */}
-      <div className="container mx-auto px-3 py-2 max-w-5xl">
-        {/* keep design but remove headings & refresh */}
-        <Card className="border-border/40 shadow-xs">
-          <CardContent className="py-3">
-            <div className="mb-3">
-              <SegmentedControl value={tab} onChange={setTab} />
+      <div className="container mx-auto px-3 py-2 max-w-5xl space-y-3">
+        <div className="mb-1">
+          <SegmentedControl value={tab} onChange={setTab} />
+        </div>
+
+        {/* stats pill row (3 cols, 1 row) */}
+        <CompactStatsBarPills
+          openBets={openBets}
+          settledBets={settledBets}
+          activeTab={tab}
+        />
+
+        {isLoading ? (
+          <div className="text-center py-6 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0B8A5F] mx-auto mb-2" />
+            <div className="text-sm text-[#475569] font-semibold">Loading your bets...</div>
+          </div>
+        ) : showing.length === 0 ? (
+          <div className="text-center py-6 border border-dashed border-[#D7DDE5] rounded-2xl bg-white shadow-sm">
+            <div className="text-[#0F172A] text-base font-semibold mb-1">
+              {tab === "OPEN" ? "No open bets" : "No settled bets yet"}
             </div>
-
-            {/* stats pill row (3 cols, 1 row) */}
-            <CompactStatsBarPills
-              openBets={openBets}
-              settledBets={settledBets}
-              activeTab={tab}
-            />
-
-            {isLoading ? (
-              <div className="text-center py-6">
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2" />
-                <div className="text-sm text-muted-foreground">Loading your bets...</div>
-              </div>
-            ) : showing.length === 0 ? (
-              <div className="text-center py-6 border border-dashed border-border/40 rounded-md bg-muted/10">
-                <div className="text-muted-foreground text-base mb-1">
-                  {tab === "OPEN" ? "No open bets" : "No settled bets yet"}
-                </div>
-                <div className="text-xs text-muted-foreground/70">
-                  {tab === "OPEN"
-                    ? "Place a bet to see it here"
-                    : "Your settled bets will appear here"}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {showing.map((bet: any) => (
-                  <BetCard
-                    key={`${bet.id}-${bet.createdAt || bet.created_at}-${bet.status || bet.bet_status}`}
-                    bet={bet}
-                    variant={tab}
-                  />
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            <div className="text-xs text-[#475569]">
+              {tab === "OPEN"
+                ? "Place a bet to see it here"
+                : "Your settled bets will appear here"}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {showing.map((bet: any) => (
+              <BetCard
+                key={`${bet.id}-${bet.createdAt || bet.created_at}-${bet.status || bet.bet_status}`}
+                bet={bet}
+                variant={tab}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </AppShell>
   );

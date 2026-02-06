@@ -2,12 +2,12 @@ import { AppShell } from "@/components/layout/AppShell";
 // Simplified odds display; full OddsCard not used here
 import { BetSlip } from "@/components/betting/BetSlip";
 import { MobileBetSlip } from "@/components/betting/MobileBetSlip";
-import type { Match, Runner } from "@/lib/store";
+import type { Match, Market, Runner } from "@/lib/store";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 
 import { useStore } from "@/lib/store";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
@@ -39,6 +39,7 @@ export default function Dashboard() {
 
   const [selectedBet, setSelectedBet] = useState<{
     match: Match;
+    market: Market;
     runner: Runner;
     type: "BACK" | "LAY";
     odds: number;
@@ -175,6 +176,13 @@ export default function Dashboard() {
     return Array.from(
       new Set([trimmed, trimmed.toUpperCase(), acronym.toUpperCase(), short3.toUpperCase()])
     ).filter(Boolean);
+  }
+
+  function compactLabel(label?: string | null) {
+    if (!label) return "";
+    const v = label.trim();
+    if (/^united states of america$/i.test(v)) return "USA";
+    return v;
   }
 
   function parseTeamScore(details: string | null | undefined, teamName: string) {
@@ -316,11 +324,12 @@ export default function Dashboard() {
 
   const handleBetSelect = (
     match: Match,
+    market: Market,
     runner: Runner,
     type: "BACK" | "LAY",
     odds: number
   ) => {
-    setSelectedBet({ match, runner, type, odds });
+    setSelectedBet({ match, market, runner, type, odds });
   };
 
   const openMatch = (id: string) => setLocation(`/match/${id}`);
@@ -440,12 +449,20 @@ export default function Dashboard() {
                       </span>
                     );
 
-                    const matchWinnerMarket =
-                      (match.markets || []).find((m: any) =>
-                        String(m.market_name || m.name || "")
-                          .toLowerCase()
-                          .includes("match winner")
-                      ) || null;
+                    const matchWinnerMarket: Market | null =
+                      ((match.markets || []) as Market[]).find((m) => {
+                        const name = String((m as any).market_name || m.name || "").toLowerCase();
+                        return name.includes("match winner") || name === "winner" || name === "win";
+                      }) || null;
+
+                    const normalizedMarket =
+                      matchWinnerMarket && {
+                        ...matchWinnerMarket,
+                        name:
+                          matchWinnerMarket.name ||
+                          (matchWinnerMarket as any).market_name ||
+                          "Match Winner",
+                      };
 
                     const runners = matchWinnerMarket ? (matchWinnerMarket.runners || []).slice(0, 2) : [];
                     const countdownExact = formatCountdownExact(match.startTime);
@@ -460,7 +477,7 @@ export default function Dashboard() {
                           if (e.key === "Enter") openMatch(match.id);
                         }}
                         className={cn(
-                          "rounded-2xl border border-[#D7DDE5] bg-white p-2.5 shadow-sm hover:shadow-md transition",
+                          "rounded-2xl border border-[#D7DDE5] bg-white p-3.5 shadow-md hover:shadow-lg transition",
                           "cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#2563EB33]",
                           "flex flex-col gap-2"
                         )}
@@ -468,7 +485,7 @@ export default function Dashboard() {
                         <div className="flex items-start gap-2 pb-1.5 border-b border-[#E2E8F0]">
                           <div className="min-w-0">
                             <div className="text-[11px] uppercase tracking-[0.16em] text-[#475569] truncate">
-                              {match.league || "Cricket"}
+                              {compactLabel(match.league) || "Cricket"}
                             </div>
                             <div className="text-[12px] text-[#1F2733] truncate">
                               {match.venue || "Venue TBA"}
@@ -494,12 +511,12 @@ export default function Dashboard() {
                             />
                             <div className="flex flex-col items-center justify-center text-center min-w-0">
                               {!isLive && countdownExact && (
-                                <span className="text-[11px] font-mono tabular-nums text-[#475569]">
+                                <span className="text-[13px] font-semibold font-mono tabular-nums text-[#0F172A]">
                                   {countdownExact}
                                 </span>
                               )}
                               {isLive && (
-                                <span className="text-[11px] font-medium text-[#15803D]">Live</span>
+                                <span className="text-[13px] font-semibold text-[#15803D]">Live</span>
                               )}
                             </div>
                             <TeamBadge
@@ -529,7 +546,8 @@ export default function Dashboard() {
                                         )}
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          handleBetSelect(match, r, "BACK", Number(back));
+                                          normalizedMarket &&
+                                          handleBetSelect(match, normalizedMarket, r, "BACK", Number(back));
                                         }}
                                       >
                                         Back {back}
@@ -541,7 +559,8 @@ export default function Dashboard() {
                                         )}
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          handleBetSelect(match, r, "LAY", Number(lay));
+                                          normalizedMarket &&
+                                          handleBetSelect(match, normalizedMarket, r, "LAY", Number(lay));
                                         }}
                                       >
                                         Lay {lay}
@@ -574,6 +593,10 @@ export default function Dashboard() {
       {/* Mobile bet slip drawer */}
       <Sheet open={!!selectedBet && isMobile} onOpenChange={(open) => !open && setSelectedBet(null)}>
         <SheetContent side="bottom" className="rounded-t-3xl p-0 h-auto pb-6">
+          <SheetTitle className="sr-only">Bet Slip</SheetTitle>
+          <SheetDescription className="sr-only">
+            Choose your selection, stake, and place the bet.
+          </SheetDescription>
           <div className="p-3">
             <MobileBetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} />
           </div>

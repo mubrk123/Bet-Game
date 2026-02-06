@@ -58,6 +58,54 @@ async function fetchFixtures(token: string, month?: string) {
   return json?.data;
 }
 
+/**
+ * MG101 fixtures live under a different, paginated endpoint:
+ *   /fixtures/mg/MG101/date/{YYYY-MM}/page/{N}/
+ * If we only call the default /fixtures/ route (MG100), none of the MG101
+ * tournaments will ever be imported into our matches table. The Coverage page
+ * explicitly lists this separate endpoint for MG101 fixtures.
+ */
+async function fetchMg101Fixtures(token: string, month?: string) {
+  const monthStr =
+    month || new Date().toISOString().slice(0, 7); // YYYY-MM
+
+  const headers = { "rs-token": token };
+  const all: any[] = [];
+  let page = 1;
+
+  // Paginate until the API tells us to stop or we hit a sane ceiling
+  while (page <= 12) { // safety guard: max 12 pages per month
+    const url =
+      `https://api.sports.roanuz.com/v5/cricket/${PROJECT_KEY}/fixtures/mg/MG101/date/${monthStr}/page/${page}/`;
+
+    const resp = await fetch(url, { headers });
+    const json = await resp.json().catch(() => null);
+
+    if (!resp.ok) {
+      throw new ApiError(
+        `Roanuz MG101 fixtures error ${resp.status}: ${json?.error?.msg || "unknown"}`,
+        resp.status,
+      );
+    }
+
+    const chunk = flattenAnyFixtures(json?.data ?? json);
+    all.push(...chunk);
+
+    const hasMore =
+      json?.data?.has_more ??
+      json?.data?.pagination?.has_more ??
+      json?.data?.page_info?.has_more ??
+      json?.has_more ??
+      false;
+
+    const totalPages = json?.data?.total_pages ?? json?.total_pages ?? null;
+    if (!hasMore && !(totalPages && page < totalPages)) break;
+    page += 1;
+  }
+
+  return all;
+}
+
 type FlatFixture = {
   key: string;
   name: string;
@@ -152,6 +200,16 @@ function flattenFixtures(data: any): FlatFixture[] {
     }
   }
   return out;
+}
+
+// Accept both the regular fixtures shape (month.days) and the MG101 list/paginated shapes
+function flattenAnyFixtures(data: any): FlatFixture[] {
+  if (!data) return [];
+  if (data?.month?.days) return flattenFixtures(data);
+  if (Array.isArray(data?.matches)) return data.matches as FlatFixture[];
+  if (Array.isArray(data?.list)) return data.list as FlatFixture[];
+  if (Array.isArray(data)) return data as FlatFixture[];
+  return [];
 }
 
 function mapFixtureToRow(fx: FlatFixture) {
@@ -317,7 +375,15 @@ serve(async (req) => {
     
     // Fetch fixtures
     const data = await fetchFixtures(token, month);
-    const fixtures = flattenFixtures(data);
+    const fixturesMg100 = flattenFixtures(data);
+    const fixturesMg101 = await fetchMg101Fixtures(token, month);
+
+    // Deduplicate by match key across coverage groups
+    const dedupedMap = new Map<string, FlatFixture>();
+    for (const fx of [...fixturesMg100, ...fixturesMg101]) {
+      if (fx?.key && !dedupedMap.has(fx.key)) dedupedMap.set(fx.key, fx);
+    }
+    const fixtures = Array.from(dedupedMap.values());
 
     console.log(`[roanuz-fixtures] Found ${fixtures.length} fixtures`);
 

@@ -111,10 +111,19 @@
     @apply border-border;
   }
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-sans antialiased text-foreground;
+    background: #F7F5EF;
+    overscroll-behavior-y: none;
+    overscroll-behavior-x: none;
+    touch-action: pan-x pan-y;
   }
   h1, h2, h3, h4, h5, h6 {
     @apply font-heading uppercase tracking-tight;
+  }
+  html, #root {
+    min-height: 100%;
+    overscroll-behavior: contain;
+    background: #F7F5EF;
   }
 }
 
