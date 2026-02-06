@@ -1,7 +1,4 @@
-import { Navbar } from "./Navbar";
-import { MobileHeader } from "./MobileHeader";
 import { BottomNav } from "./BottomNav";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 interface AppShellProps {
@@ -17,8 +14,8 @@ export function AppShell({
   hideBottomNav = false,
   fullBleed = false,
 }: AppShellProps) {
-  const isMobile = useIsMobile();
-
+  // Header is intentionally removed in current UX; keep prop for compatibility.
+  void hideHeader;
   const mainClass = cn(
     "flex-1 flex flex-col w-full",
     fullBleed
