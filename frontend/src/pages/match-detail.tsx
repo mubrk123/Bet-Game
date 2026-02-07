@@ -1,6 +1,8 @@
 import { AppShell } from "@/components/layout/AppShell";
+import { BetSlip } from "@/components/betting/BetSlip";
+import { MobileBetSlip } from "@/components/betting/MobileBetSlip";
 import { useStore } from "@/lib/store";
-import type { Match, Market } from "@/lib/store";
+import type { Match, Market, Runner } from "@/lib/store";
 import { useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +17,8 @@ import { wsClient } from "@/lib/websocket";
 import type { MatchScoreUpdate, BallResult } from "@shared/realtime";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 
 /* =========================
    Visual tokens (Warm Ivory)
@@ -816,102 +820,6 @@ function QuickBetSheet({
   );
 }
 
-function PreMatchBetSheet({
-  open,
-  runner,
-  stake,
-  setStake,
-  onClose,
-  onPlace,
-  setType,
-}: {
-  open: boolean;
-  runner: { name: string; backOdds: number; layOdds: number | null; type: "BACK" | "LAY" } | null;
-  stake: string;
-  setStake: (v: string) => void;
-  onClose: () => void;
-  onPlace: () => void;
-  setType: (t: "BACK" | "LAY") => void;
-}) {
-  if (!open || !runner) return null;
-
-  const hasLay = Number.isFinite(runner.layOdds) && (runner.layOdds ?? 0) > 1.01;
-  return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/35 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="absolute inset-x-0 bottom-2 px-3 sm:px-4">
-        <div className="rounded-2xl border border-[#E5E0D6] bg-[#FDFBF6] backdrop-blur-xl shadow-[0_18px_44px_rgba(0,0,0,0.25)]">
-          <div className="p-3 space-y-3">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-[#2D3436] truncate">{runner.name}</div>
-                <div className="text-[11px] text-[#6C757D]">
-                  <span
-                    className={cn(
-                      "mr-2 px-2 py-0.5 rounded-full text-[10px] border cursor-pointer",
-                      runner.type === "BACK"
-                        ? "bg-[#E8F6F1] border-[#1ABC9C33] text-[#27AE60]"
-                        : "bg-[#FDFBF6] border-[#E5E0D6] text-[#7A7F87]"
-                    )}
-                    onClick={() => setType("BACK")}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    Back {runner.backOdds.toFixed(2)}
-                  </span>
-                  <span
-                    className={cn(
-                      "px-2 py-0.5 rounded-full text-[10px] border cursor-pointer",
-                      runner.type === "LAY"
-                        ? "bg-[#FDF2F2] border-[#F3D0D0] text-[#EB5757]"
-                        : "bg-[#FDFBF6] border-[#E5E0D6] text-[#7A7F87]",
-                      !hasLay && "opacity-40 cursor-not-allowed"
-                    )}
-                    onClick={() => hasLay && setType("LAY")}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    Lay {hasLay ? (runner.layOdds as number).toFixed(2) : "—"}
-                  </span>
-                </div>
-              </div>
-              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={onClose}>
-                <X className="h-4 w-4 text-[#6C757D]" />
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                className="w-28 rounded-xl bg-white border border-[#E5E7EB] px-2 py-1.5 text-sm text-[#2D3436] focus:outline-none focus:ring-2 focus:ring-[#1ABC9C]"
-                value={stake}
-                min={1}
-                onChange={(e) => setStake(e.target.value)}
-              />
-              <div className="flex items-center gap-1.5">
-                {[100, 250, 500].map((amt) => (
-                  <Button
-                    key={amt}
-                    size="sm"
-                    variant="outline"
-                    className="h-8 px-2 text-[11px] border-[#E5E7EB] bg-white"
-                    onClick={() => setStake(String(amt))}
-                  >
-                    ₹{amt}
-                  </Button>
-                ))}
-              </div>
-              <div className="flex-1" />
-              <Button size="sm" className="h-9 px-3 rounded-xl" onClick={onPlace}>
-                Place {runner.type === "BACK" ? "Back" : "Lay"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* =========================
    Component
 ========================= */
@@ -939,17 +847,16 @@ export default function MatchDetail() {
   const [selectedMarket, setSelectedMarket] = useState<InstanceMarket | null>(null);
   const [betAnchor, setBetAnchor] = useState<{ x: number; y: number } | null>(null);
   const [placingQuick, setPlacingQuick] = useState(false);
-  const [selectedRunner, setSelectedRunner] = useState<{
-    marketId: string;
-    runnerId: string;
-    runnerName: string;
-    backOdds: number;
-    layOdds: number | null;
+  const [selectedBet, setSelectedBet] = useState<{
+    match: Match;
+    market: Market;
+    runner: Runner;
     type: "BACK" | "LAY";
+    odds: number;
   } | null>(null);
-  const [winnerStake, setWinnerStake] = useState("100");
   const [activeTab, setActiveTab] = useState<"winner" | "live" | "session" | "commentary">("winner");
   const defaultTabSetRef = useRef(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     wsClient.connect();
@@ -1354,6 +1261,30 @@ export default function MatchDetail() {
     [effectiveEvents, activeInning]
   );
 
+  const [stablePlayers, setStablePlayers] = useState({
+    striker: { name: "—", runs: "—", balls: "—" },
+    nonStriker: { name: "—", runs: "—", balls: "—" },
+    bowler: { name: "—", runs: 0, wkts: 0, econ: "", overs: "—", maidens: 0, fig: "—", compact: "—" },
+  });
+
+  useEffect(() => {
+    setStablePlayers((prev) => {
+      const next = { ...prev };
+      const hasStriker = derived.striker.name && derived.striker.name !== "—";
+      const hasNon = derived.nonStriker.name && derived.nonStriker.name !== "—";
+      const hasBowler = derived.bowler.name && derived.bowler.name !== "—";
+
+      if (hasStriker) next.striker = derived.striker;
+      if (hasNon) next.nonStriker = derived.nonStriker;
+      if (hasBowler) next.bowler = derived.bowler;
+      return next;
+    });
+  }, [derived.striker, derived.nonStriker, derived.bowler]);
+
+  const displayStriker = derived.striker.name !== "—" ? derived.striker : stablePlayers.striker;
+  const displayNonStriker = derived.nonStriker.name !== "—" ? derived.nonStriker : stablePlayers.nonStriker;
+  const displayBowler = derived.bowler.name !== "—" ? derived.bowler : stablePlayers.bowler;
+
   const battingTeamResolved = useMemo(() => {
     const home = match?.homeTeam || "";
     const away = match?.awayTeam || "";
@@ -1749,71 +1680,31 @@ export default function MatchDetail() {
   }, [instanceMarkets]);
 
   const onPickRunner = (runner: any, market: any, type: "BACK" | "LAY" = "BACK") => {
-    setSelectedRunner({
-      marketId: market.id,
-      runnerId: runner.id,
-      runnerName: runner.name || runner.runner_name,
-      backOdds: Number(runner.backOdds ?? runner.back_odds ?? 0),
-      layOdds: Number.isFinite(Number(runner.layOdds ?? runner.lay_odds)) ? Number(runner.layOdds ?? runner.lay_odds) : null,
-      type,
-    });
-  };
-  const handleWinnerBet = async () => {
-    if (!selectedRunner || !match) return;
-
-    // 🚫 Hard block: if match is completed, do not allow bets
+    if (!match) return;
     if (match.status === "FINISHED") {
       toast({
         title: "Betting closed",
         description: "This match is completed. New bets are not allowed.",
         variant: "destructive",
       });
-      setSelectedRunner(null);
       return;
     }
 
-    if (!currentUser) {
-      toast({ title: "Please login", description: "Login to place a bet.", variant: "destructive" });
-      return;
-    }
-    const stakeNum = Number(winnerStake || 0);
-    if (!Number.isFinite(stakeNum) || stakeNum <= 0) {
-      toast({ title: "Invalid stake", description: "Enter a stake greater than 0.", variant: "destructive" });
-      return;
-    }
+    const back = Number(runner.backOdds ?? runner.back_odds ?? 0);
+    const layVal = Number(runner.layOdds ?? runner.lay_odds);
+    const lay = Number.isFinite(layVal) ? layVal : back;
+    const odds = type === "BACK" ? back : lay || back;
 
-    try {
-      const odds = selectedRunner.type === "BACK" ? selectedRunner.backOdds : selectedRunner.layOdds ?? selectedRunner.backOdds;
-
-      await api.placeBet({
-        matchId: match.id,
-        marketId: selectedRunner.marketId,
-        runnerId: selectedRunner.runnerId,
-        runnerName: selectedRunner.runnerName,
-        type: selectedRunner.type,
-        odds,
-        stake: stakeNum,
-      });
-
-      toast({
-        title: "Bet placed",
-        description: `${selectedRunner.runnerName} ${selectedRunner.type} @ ${odds.toFixed(2)} | ₹${stakeNum.toFixed(0)}`,
-      });
-
-      setSelectedRunner(null);
-
-      const { user } = await api.getCurrentUser();
-      setCurrentUser({
-        id: user.id,
-        username: user.username,
-        role: user.role,
-        balance: parseFloat(user.balance),
-        exposure: parseFloat(user.exposure),
-        currency: user.currency,
-      });
-    } catch (err: any) {
-      toast({ title: "Bet failed", description: err?.message || "Unable to place bet", variant: "destructive" });
-    }
+    setSelectedBet({
+      match,
+      market,
+      runner: {
+        ...(runner as Runner),
+        name: runner.name || runner.runner_name,
+      } as Runner,
+      type,
+      odds,
+    });
   };
 
   const handleInstanceBet = async (market: InstanceMarket, outcome: InstanceOutcome) => {
@@ -1890,10 +1781,10 @@ export default function MatchDetail() {
   const homeWinPct = Math.max(0, Math.min(100, winDisplay.homePct));
   const awayWinPct = Math.max(0, Math.min(100, winDisplay.awayPct));
 
-  const strikerRuns = derived.striker.runs;
-  const strikerBalls = derived.striker.balls;
-  const nonStrikerRuns = derived.nonStriker.runs;
-  const nonStrikerBalls = derived.nonStriker.balls;
+  const strikerRuns = displayStriker.runs;
+  const strikerBalls = displayStriker.balls;
+  const nonStrikerRuns = displayNonStriker.runs;
+  const nonStrikerBalls = displayNonStriker.balls;
 
   if (!match && isLoadingMatch) {
     return (
@@ -1988,11 +1879,11 @@ export default function MatchDetail() {
       {/* Right: bowler */}
       <div className="flex-1 min-w-0 text-right">
         <p className="text-[12px] text-[#111827] truncate">
-          Bowling: {derived.bowler.name}
+          Bowling: {displayBowler.name}
         </p>
-        <p className="text-[11px] text-[#6B7280]">{derived.bowler.fig}</p>
+        <p className="text-[11px] text-[#6B7280]">{displayBowler.fig}</p>
         <p className="text-[11px] text-[#6B7280]">
-          Economy {derived.bowler.econ || "—"}
+          Economy {displayBowler.econ || "—"}
         </p>
       </div>
     </div>
@@ -2594,19 +2485,21 @@ export default function MatchDetail() {
         currencySymbol={currentUser?.currency || "₹"}
       />
 
-      <PreMatchBetSheet
-        open={!!selectedRunner}
-        runner={
-          selectedRunner
-            ? { name: selectedRunner.runnerName, backOdds: selectedRunner.backOdds, layOdds: selectedRunner.layOdds, type: selectedRunner.type }
-            : null
-        }
-        stake={winnerStake}
-        setStake={setWinnerStake}
-        onClose={() => setSelectedRunner(null)}
-        onPlace={handleWinnerBet}
-        setType={(t) => setSelectedRunner((prev) => (prev ? { ...prev, type: t } : prev))}
-      />
+      {!isMobile && selectedBet && (
+        <div className="fixed bottom-6 right-6 z-50 w-[360px]">
+          <BetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} variant="compact" />
+        </div>
+      )}
+
+      <Sheet open={!!selectedBet && isMobile} onOpenChange={(open) => !open && setSelectedBet(null)}>
+        <SheetContent side="bottom" className="rounded-t-3xl p-0 h-auto pb-6">
+          <SheetTitle className="sr-only">Bet Slip</SheetTitle>
+          <SheetDescription className="sr-only">Choose your selection, stake, and place the bet.</SheetDescription>
+          <div className="p-3">
+            <MobileBetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} />
+          </div>
+        </SheetContent>
+      </Sheet>
     </AppShell>
   );
 }
