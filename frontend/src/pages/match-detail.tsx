@@ -1261,6 +1261,7 @@ export default function MatchDetail() {
     [effectiveEvents, activeInning]
   );
 
+  const [dismissedSet, setDismissedSet] = useState<Set<string>>(new Set());
   const [stablePlayers, setStablePlayers] = useState({
     striker: { name: "—", runs: "—", balls: "—" },
     nonStriker: { name: "—", runs: "—", balls: "—" },
@@ -1268,21 +1269,53 @@ export default function MatchDetail() {
   });
 
   useEffect(() => {
+    const latestName = latestInningBall?.batsman_name;
+    if (latestInningBall?.is_wicket && latestName) {
+      setDismissedSet((prev) => {
+        const next = new Set(prev);
+        next.add(latestName);
+        return next;
+      });
+    }
+  }, [latestInningBall?.is_wicket, latestInningBall?.batsman_name]);
+
+  const rotatedBatters = useMemo(() => {
+    if (!latestInningBall) return { striker: derived.striker, nonStriker: derived.nonStriker };
+    const baseStriker = latestInningBall.batsman_name || derived.striker.name || "—";
+    const baseNon = latestInningBall.non_striker_name || derived.nonStriker.name || stablePlayers.nonStriker.name;
+
+    let striker = { ...derived.striker, name: baseStriker };
+    let nonStriker = { ...derived.nonStriker, name: baseNon };
+
+    const totalRuns = toNum(latestInningBall.total_runs, toNum(latestInningBall.runs) + toNum(latestInningBall.extras));
+    const isLegal = latestInningBall.is_legal !== false;
+    const isWicket = latestInningBall.is_wicket;
+    const shouldSwap = isLegal && !isWicket && totalRuns % 2 === 1;
+
+    if (shouldSwap) {
+      const temp = striker;
+      striker = nonStriker;
+      nonStriker = temp;
+    }
+    return { striker, nonStriker };
+  }, [latestInningBall, derived.striker, derived.nonStriker, stablePlayers.nonStriker.name]);
+
+  useEffect(() => {
     setStablePlayers((prev) => {
       const next = { ...prev };
-      const hasStriker = derived.striker.name && derived.striker.name !== "—";
-      const hasNon = derived.nonStriker.name && derived.nonStriker.name !== "—";
+      const hasStriker = rotatedBatters.striker.name && rotatedBatters.striker.name !== "—";
+      const hasNon = rotatedBatters.nonStriker.name && rotatedBatters.nonStriker.name !== "—";
       const hasBowler = derived.bowler.name && derived.bowler.name !== "—";
 
-      if (hasStriker) next.striker = derived.striker;
-      if (hasNon) next.nonStriker = derived.nonStriker;
+      if (hasStriker) next.striker = rotatedBatters.striker;
+      if (hasNon) next.nonStriker = rotatedBatters.nonStriker;
       if (hasBowler) next.bowler = derived.bowler;
       return next;
     });
-  }, [derived.striker, derived.nonStriker, derived.bowler]);
+  }, [rotatedBatters.striker, rotatedBatters.nonStriker, derived.bowler]);
 
-  const displayStriker = derived.striker.name !== "—" ? derived.striker : stablePlayers.striker;
-  const displayNonStriker = derived.nonStriker.name !== "—" ? derived.nonStriker : stablePlayers.nonStriker;
+  const displayStriker = rotatedBatters.striker.name !== "—" ? rotatedBatters.striker : stablePlayers.striker;
+  const displayNonStriker = rotatedBatters.nonStriker.name !== "—" ? rotatedBatters.nonStriker : stablePlayers.nonStriker;
   const displayBowler = derived.bowler.name !== "—" ? derived.bowler : stablePlayers.bowler;
 
   const battingTeamResolved = useMemo(() => {
@@ -1462,14 +1495,14 @@ export default function MatchDetail() {
 
   const lastKnownBatsRef = useRef<{ striker: string; non: string }>({ striker: "—", non: "—" });
   useEffect(() => {
-    const bowler = (derived.bowler.name || "").trim();
-    const s = (derived.striker.name || "").trim();
-    const n = (derived.nonStriker.name || "").trim();
+    const bowler = (displayBowler.name || "").trim();
+    const s = (displayStriker.name || "").trim();
+    const n = (displayNonStriker.name || "").trim();
     const validStriker = s && s !== "—" && s !== bowler;
     const validNon = n && n !== "—" && n !== bowler && n !== s;
     if (validStriker) lastKnownBatsRef.current.striker = s;
     if (validNon) lastKnownBatsRef.current.non = n;
-  }, [derived.striker.name, derived.nonStriker.name, derived.bowler.name]);
+  }, [displayStriker.name, displayNonStriker.name, displayBowler.name]);
 
   const parseUtcMs = (t?: string | null) => {
     if (!t) return Number.NaN;
@@ -1854,9 +1887,14 @@ export default function MatchDetail() {
         <div className="flex flex-col gap-1">
           {/* Striker */}
           <div className="flex items-center gap-2 min-w-0">
-            <p className="text-[12px] text-[#111827] truncate min-w-0 flex items-center gap-1">
+            <p
+              className={cn(
+                "text-[12px] truncate min-w-0 flex items-center gap-1",
+                dismissedSet.has(displayStriker.name) ? "text-[#9CA3AF]" : "text-[#111827]"
+              )}
+            >
               <span className="text-[#27AE60]">●</span>
-              <span className="truncate">{lastKnownBatsRef.current.striker}</span>
+              <span className="truncate">{displayStriker.name || lastKnownBatsRef.current.striker}</span>
             </p>
             <span className="shrink-0 font-mono tabular-nums font-semibold text-[#111827] text-[12px]">
               {strikerRuns}/{strikerBalls}
@@ -1865,9 +1903,14 @@ export default function MatchDetail() {
 
           {/* Non-striker */}
           <div className="flex items-center gap-2 min-w-0">
-            <p className="text-[12px] text-[#111827] truncate min-w-0 flex items-center gap-1">
+            <p
+              className={cn(
+                "text-[12px] truncate min-w-0 flex items-center gap-1",
+                dismissedSet.has(displayNonStriker.name) ? "text-[#9CA3AF]" : "text-[#111827]"
+              )}
+            >
               <span className="text-[#B0B7C3]">●</span>
-              <span className="truncate">{lastKnownBatsRef.current.non}</span>
+              <span className="truncate">{displayNonStriker.name || lastKnownBatsRef.current.non}</span>
             </p>
             <span className="shrink-0 font-mono tabular-nums font-semibold text-[#111827] text-[12px]">
               {nonStrikerRuns}/{nonStrikerBalls}

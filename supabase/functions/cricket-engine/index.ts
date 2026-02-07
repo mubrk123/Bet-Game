@@ -988,9 +988,36 @@ async function handleNonBallUpdate(body: any) {
   if (snapshot?.play_status) update.ro_play_status = snapshot.play_status;
   if (snapshot?.innings) update.ro_innings_summary = snapshot.innings;
 
-  // Target if present
-  const target = snapshot?.target_runs ?? snapshot?.target?.runs ?? snapshot?.required?.target ?? null;
-  if (Number.isFinite(Number(target))) update.ro_target_runs = Number(target);
+  // Target / first-innings runs (persist even if provider omits explicit target)
+  const firstInningsRuns = (() => {
+    const inningsList: any[] =
+      (Array.isArray(snapshot?.innings) && snapshot?.innings) ||
+      (Array.isArray((snapshot as any)?.match?.innings) && (snapshot as any)?.match?.innings) ||
+      (Array.isArray((snapshot as any)?.innings_summary) && (snapshot as any)?.innings_summary) ||
+      [];
+    if (!inningsList.length) return null;
+    const first = inningsList[0];
+    const runs = Number(
+      first?.score?.runs ??
+        first?.runs ??
+        first?.total ??
+        first?.score ??
+        (typeof first?.score_details === "string"
+          ? (first.score_details.match(/(\d+)\s*\/?\s*\d*/)?.[1] ? Number(RegExp.$1) : NaN)
+          : NaN)
+    );
+    return Number.isFinite(runs) && runs > 0 ? runs : null;
+  })();
+
+  const target =
+    snapshot?.target_runs ??
+    snapshot?.target?.runs ??
+    snapshot?.required?.target ??
+    firstInningsRuns ??
+    prevRow?.ro_target_runs ??
+    null;
+
+  if (Number.isFinite(Number(target)) && Number(target) > 0) update.ro_target_runs = Number(target);
 
   await supabase.from("matches").update(update).eq("id", matchId);
 
