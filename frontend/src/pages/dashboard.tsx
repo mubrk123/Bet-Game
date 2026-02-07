@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 // Icons not needed after simplifying header
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { wsClient } from "@/lib/websocket";
 
 const ivoryTheme = {
   canvas: "bg-[#F7F5EF]",
@@ -114,12 +115,14 @@ export default function Dashboard() {
     banner,
     score,
     subline,
+    extra,
     align = "left",
   }: {
     name: string;
     banner?: string | null;
     score?: string | null;
     subline?: string | null;
+    extra?: string | null;
     align?: "left" | "right";
   }) {
     return (
@@ -156,6 +159,9 @@ export default function Dashboard() {
             ) : null}
             {subline ? (
               <p className="text-[11px] text-[#718096] truncate">{subline}</p>
+            ) : null}
+            {extra ? (
+              <p className="text-[11px] text-[#94A3B8] truncate">{extra}</p>
             ) : null}
           </div>
         </div>
@@ -328,6 +334,36 @@ export default function Dashboard() {
   }, [matchesData, setMatches, phaseFilter]);
 
   useEffect(() => {
+    if (!currentUser?.id) return;
+
+    wsClient.connect();
+    wsClient.subscribeToUser(currentUser.id);
+
+    const unsubscribeWallet = wsClient.on("wallet:update", async () => {
+      try {
+        const { user } = await api.getCurrentUser();
+        useStore.setState({
+          currentUser: {
+            id: user.id,
+            username: user.username,
+            role: user.role,
+            balance: parseFloat(user.balance),
+            exposure: parseFloat(user.exposure),
+            currency: user.currency,
+          },
+        });
+      } catch (err) {
+        console.error("wallet:update refresh failed", err);
+      }
+    });
+
+    return () => {
+      unsubscribeWallet?.();
+      wsClient.unsubscribe(`user:${currentUser.id}`);
+    };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
     const channel = supabase
       .channel("matches-feed")
       .on(
@@ -472,30 +508,44 @@ export default function Dashboard() {
 
                     const battingSide = isLive ? resolveBattingSide(match) : null;
 
-                    const parsedHome = parseTeamScore(match.scoreDetails, match.homeTeam);
-                    const parsedAway = parseTeamScore(match.scoreDetails, match.awayTeam);
+                  const parsedHome = parseTeamScore(match.scoreDetails, match.homeTeam);
+                  const parsedAway = parseTeamScore(match.scoreDetails, match.awayTeam);
 
-                    const homeScore =
-                      parsedHome?.score ||
-                      (isLive && match.runs != null && battingSide === "home"
+                    const liveScore =
+                      isLive && match.runs != null
                         ? `${match.runs}/${match.wickets ?? 0}`
-                        : null);
-                    const awayScore =
-                      parsedAway?.score ||
-                      (isLive && match.runs != null && battingSide === "away"
-                        ? `${match.runs}/${match.wickets ?? 0}`
-                        : null);
+                        : isLive
+                          ? parsedHome?.score || parsedAway?.score || null
+                          : null;
 
-                    let homeSub =
-                      parsedHome?.overs ||
-                      (match.status === "LIVE" && battingSide === "home" && match.overs != null
+                    const liveOvers =
+                      isLive && match.overs != null
                         ? `${match.overs} ov`
-                        : null);
-                    let awaySub =
-                      parsedAway?.overs ||
-                      (match.status === "LIVE" && battingSide === "away" && match.overs != null
-                        ? `${match.overs} ov`
-                        : null);
+                        : isLive
+                          ? parsedHome?.overs || parsedAway?.overs || null
+                          : null;
+
+                    // const homeScore =
+                    //   parsedHome?.score ||
+                    //   (isLive && match.runs != null && battingSide === "home"
+                    //     ? `${match.runs}/${match.wickets ?? 0}`
+                    //     : null);
+                    // const awayScore =
+                    //   parsedAway?.score ||
+                    //   (isLive && match.runs != null && battingSide === "away"
+                    //     ? `${match.runs}/${match.wickets ?? 0}`
+                    //     : null);
+
+                    const targetLine =
+                      isLive &&
+                      match.targetRuns != null &&
+                      match.currentInning != null &&
+                      match.currentInning >= 2
+                        ? `Target ${match.targetRuns}`
+                        : null;
+
+                    const homeRole = battingSide === "home" ? "Batting" : battingSide === "away" ? "Bowling" : null;
+                    const awayRole = battingSide === "away" ? "Batting" : battingSide === "home" ? "Bowling" : null;
 
                     const statusPill = isLive ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-[#DCFCE7] text-[#15803D] px-2 py-[3px] text-[11px] font-semibold border border-[#BBF7D0]">
@@ -566,25 +616,37 @@ export default function Dashboard() {
                             <TeamBadge
                               name={match.homeTeam}
                               banner={match.homeTeamBanner}
-                              score={isLive ? homeScore : null}
-                              subline={homeSub}
+                              score={null}
+                              subline={homeRole}
+                              extra={battingSide === "home" && targetLine ? targetLine : null}
                               align="left"
                             />
                             <div className="flex flex-col items-center justify-center text-center min-w-0">
-                              {!isLive && countdownExact && (
-                                <span className="text-[13px] font-semibold font-mono tabular-nums text-[#0F172A]">
-                                  {countdownExact}
-                                </span>
-                              )}
-                              {isLive && (
-                                <span className="text-[13px] font-semibold text-[#15803D]">Live</span>
+                              {isLive && liveScore ? (
+                                <>
+                                  <span className="text-[18px] font-semibold font-mono tabular-nums text-[#0F172A]">
+                                    {liveScore}
+                                  </span>
+                                  {liveOvers && (
+                                    <span className="text-[12px] text-[#475569] font-mono tabular-nums">
+                                      {liveOvers}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                countdownExact && (
+                                  <span className="text-[13px] font-semibold font-mono tabular-nums text-[#0F172A]">
+                                    {countdownExact}
+                                  </span>
+                                )
                               )}
                             </div>
                             <TeamBadge
                               name={match.awayTeam}
                               banner={match.awayTeamBanner}
-                              score={isLive ? awayScore : null}
-                              subline={awaySub}
+                              score={null}
+                              subline={awayRole}
+                              extra={battingSide === "away" && targetLine ? targetLine : null}
                               align="right"
                             />
                           </div>

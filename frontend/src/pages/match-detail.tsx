@@ -5,6 +5,7 @@ import { useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Activity, Clock3, X, ArrowLeft } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,30 @@ const ui = {
 
 const softShadow = "shadow-[0_4px_16px_rgba(15,23,42,0.04)]";
 
+// Merge helper to avoid transient null/empty values causing UI flicker
+function mergeLiveScore<T extends Record<string, any>>(prev: T | null, next: T): T {
+  if (!prev) return next;
+  const merged: any = { ...prev };
+  for (const [key, val] of Object.entries(next)) {
+    const keepPrev =
+      val === null ||
+      val === undefined ||
+      (typeof val === "string" && val.trim() === "");
+    merged[key] = keepPrev ? prev[key] : val;
+  }
+  return merged as T;
+}
+
+function mergeBallResult(prev: BallResult | null, next: BallResult): BallResult {
+  if (!prev) return next;
+  return {
+    ...prev,
+    ...next,
+    batsmanName: next.batsmanName ?? prev.batsmanName,
+    bowlerName: next.bowlerName ?? prev.bowlerName,
+  };
+}
+
 /* =========================
    Helpers + Types
 ========================= */
@@ -60,6 +85,7 @@ type BallEventRow = {
   extra_type: string | null;
   is_boundary: boolean;
   is_six: boolean;
+  commentary?: string | null;
   created_at: string;
 };
 
@@ -922,7 +948,7 @@ export default function MatchDetail() {
     type: "BACK" | "LAY";
   } | null>(null);
   const [winnerStake, setWinnerStake] = useState("100");
-  const [activeTab, setActiveTab] = useState<"winner" | "live" | "session">("winner");
+  const [activeTab, setActiveTab] = useState<"winner" | "live" | "session" | "commentary">("winner");
   const defaultTabSetRef = useRef(false);
 
   useEffect(() => {
@@ -1099,6 +1125,7 @@ export default function MatchDetail() {
   });
 
   const [ballFeed, setBallFeed] = useState<BallEventRow[]>([]);
+  const [commentary, setCommentary] = useState<BallEventRow[]>([]);
   useQuery({
     queryKey: ["ball-events", dbMatchId],
     enabled: Boolean(dbMatchId),
@@ -1110,7 +1137,7 @@ export default function MatchDetail() {
       const { data, error } = await supabase
         .from("ball_events")
         .select(
-          "ro_inning_number, ro_over_number, ro_ball_in_over, ro_sub_ball_number, ro_ball_key, ro_is_legal_delivery, ro_batsman_name, ro_non_striker_name, ro_bowler_name, ro_batsman_runs, ro_extras_runs, ro_total_runs, ro_is_wicket, ro_extra_type, ro_is_boundary, ro_is_six, ro_batsman_key, ro_non_striker_key, ro_bowler_key, created_at"
+          "ro_inning_number, ro_over_number, ro_ball_in_over, ro_sub_ball_number, ro_ball_key, ro_is_legal_delivery, ro_batsman_name, ro_non_striker_name, ro_bowler_name, ro_batsman_runs, ro_extras_runs, ro_total_runs, ro_is_wicket, ro_extra_type, ro_is_boundary, ro_is_six, ro_batsman_key, ro_non_striker_key, ro_bowler_key, ro_commentary, created_at"
         )
         .eq("match_id", dbMatchId)
         .or("ro_is_deleted.is.null,ro_is_deleted.eq.false")
@@ -1170,6 +1197,7 @@ export default function MatchDetail() {
             extra_type: extraShort ? row.ro_extra_type ?? null : null,
             is_boundary: !!row.ro_is_boundary,
             is_six: !!row.ro_is_six,
+            commentary: row.ro_commentary ?? null,
             created_at: row.created_at,
           };
         })
@@ -1177,6 +1205,7 @@ export default function MatchDetail() {
 
       const deduped = dedupeBallEvents(mapped);
       setBallFeed(deduped);
+      setCommentary(deduped.filter((b) => (b.commentary || "").trim().length > 0));
       return deduped;
     },
   });
@@ -1238,6 +1267,7 @@ export default function MatchDetail() {
         extra_type: extraShort ? row.ro_extra_type ?? null : null,
         is_boundary: !!row.ro_is_boundary,
         is_six: !!row.ro_is_six,
+        commentary: row.ro_commentary ?? null,
         created_at: row.created_at,
       };
 
@@ -1248,6 +1278,8 @@ export default function MatchDetail() {
           return !(sameKey || sameTs);
         });
         const next = dedupeBallEvents([mapped, ...filtered]);
+        const withComment = next.filter((b) => (b.commentary || "").trim().length > 0);
+        setCommentary(withComment);
         return next.slice(0, 300);
       });
     };
@@ -1363,14 +1395,14 @@ export default function MatchDetail() {
 
     const unsubScore = wsClient.on<MatchScoreUpdate>("match:score", (data) => {
       if (data.matchId === subId) {
-        setLiveScore(data);
+        setLiveScore((prev) => mergeLiveScore(prev, data));
         queryClient.invalidateQueries({ queryKey: ["realtime", subId] });
       }
     });
 
     const unsubBall = wsClient.on<BallResult>("match:ball", (data) => {
       if (data.matchId === subId) {
-        setLastBall(data);
+        setLastBall((prev) => mergeBallResult(prev, data));
       }
     });
 
@@ -2332,6 +2364,73 @@ export default function MatchDetail() {
     );
   };
 
+  const renderCommentaryTab = () => {
+    const items = commentary
+      .filter((c) => (c.commentary || "").trim().length > 0)
+      .slice()
+      .sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0));
+
+    const renderCommentaryText = (raw: string) => {
+      const clean = raw.replace(/<\/?[^>]+(>|$)/g, "");
+      const parts = clean.split(/(\d+\s*runs?)/gi);
+      return parts.map((part, idx) => {
+        const isRuns = /^\d+\s*runs?$/i.test(part.trim());
+        return isRuns ? (
+          <span key={`run-${idx}`} className="font-semibold text-[#0B8A5F]">
+            {part}
+          </span>
+        ) : (
+          <span key={`txt-${idx}`}>{part}</span>
+        );
+      });
+    };
+
+    return (
+      <div className="w-full">
+        {items.length === 0 ? (
+          <div className="p-4 text-[12px] text-[#6C757D]">No commentary yet.</div>
+        ) : (
+          <ScrollArea className="h-[70vh] w-full">
+            <div className="divide-y divide-[#E5E7EB] pb-6">
+              {items.map((c, idx) => {
+                const overLabel = `${c.over}.${c.ball}`;
+                const outcome = outcomeFromBallEvent(c) || "·";
+
+                return (
+                  <div
+                    key={`${c.ball_key || "row"}-${c.created_at}-${idx}`}
+                    className="px-3 sm:px-4 py-3.5"
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <div
+                        className={cn(
+                          "h-11 w-11 rounded-full flex items-center justify-center text-[14px] font-semibold",
+                          chipStyle(outcome)
+                        )}
+                      >
+                        {outcome}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 text-[12px] text-[#6B7280] mb-0.5">
+                          <span className="font-mono tabular-nums text-[#0F172A] font-semibold text-[12px]">{overLabel}</span>
+                          <span>·</span>
+                          <span>{new Date(c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                        </div>
+                        <p className="text-[14px] leading-[1.55] text-[#0F172A] whitespace-pre-line">
+                          {renderCommentaryText(c.commentary || "")}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        )}
+      </div>
+    );
+  };
+
   const inningsBreak = statusNote && /innings break/i.test(String(statusNote));
 
   return (
@@ -2423,18 +2522,19 @@ export default function MatchDetail() {
 
           {/* Tabs */}
           <div className="mt-0.5">
-            <div className="flex w-full rounded-full border border-[#E5E7EB] bg-[#FDFBF6] p-0.5 text-[13px] overflow-hidden">
+            <div className="grid grid-cols-4 w-full rounded-full border border-[#E5E7EB] bg-[#FDFBF6] p-0.5 text-[13px] overflow-hidden">
               {[
                 { key: "winner" as const, label: "Winner" },
                 { key: "live" as const, label: "Live Play" },
                 { key: "session" as const, label: "Session" },
+                { key: "commentary" as const, label: "Commentary" },
               ].map((t) => {
                 const isActiveTab = activeTab === t.key;
                 return (
                   <button
                     key={t.key}
                     className={cn(
-                      "flex-1 px-3 sm:px-4 py-1.5 rounded-full transition-colors text-center",
+                      "w-full h-10 px-3 sm:px-4 rounded-full transition-colors text-center flex items-center justify-center",
                       isActiveTab ? "bg-[#1ABC9C] text-white shadow-sm" : "text-[#4B5563]"
                     )}
                     onClick={() => setActiveTab(t.key)}
@@ -2470,6 +2570,7 @@ export default function MatchDetail() {
           )}
 
           {activeTab === "session" && <div className="space-y-2.5">{renderSessionMarkets()}</div>}
+          {activeTab === "commentary" && <div className="space-y-2.5">{renderCommentaryTab()}</div>}
         </div>
       </div>
 

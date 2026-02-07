@@ -24,6 +24,15 @@ export function MobileBetSlip({ selectedBet, onClear }: BetSlipProps) {
   const [stake, setStake] = useState("100");
   const [isPlacing, setIsPlacing] = useState(false);
 
+  const friendlyBetError = (err: any) => {
+    const raw = String(err?.message || err || "Unable to place bet.");
+    if (/expired|closed|suspended/i.test(raw)) return "Betting window closed for this market.";
+    if (/insufficient|balance/i.test(raw)) return "Insufficient balance to place this bet.";
+    if (/odds|price|changed/i.test(raw)) return "Odds changed. Please refresh and try again.";
+    if (/market not open|market_status/i.test(raw)) return "Market is not open for betting.";
+    return raw;
+  };
+
   if (!selectedBet) return null;
 
   const potentialProfit =
@@ -65,7 +74,7 @@ export function MobileBetSlip({ selectedBet, onClear }: BetSlipProps) {
 
       onClear();
     } catch (err: any) {
-      toast({ title: "Failed", description: err.message, variant: "destructive" });
+      toast({ title: "Failed", description: friendlyBetError(err), variant: "destructive" });
     } finally {
       setIsPlacing(false);
     }
@@ -105,13 +114,14 @@ export function MobileBetSlip({ selectedBet, onClear }: BetSlipProps) {
 
         <div className="space-y-2">
           <label className="text-xs text-[#7A7F87]">Stake</label>
-          <Input
-            type="number"
-            value={stake}
-            onChange={(e) => setStake(e.target.value)}
-            className="bg-white border-[#E5E0D6] text-[#1F2733]"
-            data-testid="input-stake-mobile"
-          />
+        <Input
+          type="number"
+          value={stake}
+          onChange={(e) => setStake(e.target.value)}
+          className="bg-white border-[#E5E0D6] text-[#1F2733] text-base"
+          inputMode="decimal"
+          data-testid="input-stake-mobile"
+        />
           <div className="grid grid-cols-4 gap-2">
             {[100, 200, 500, 1000].map((amt) => (
               <Button

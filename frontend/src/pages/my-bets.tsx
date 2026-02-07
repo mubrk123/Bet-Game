@@ -170,6 +170,7 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
 
   // "Actual outcome" – best-effort across possible fields
   const actualOutcome =
+    bet?.winning_outcome ||
     bet?.resultSelection ||
     bet?.winningSelection ||
     bet?.winner ||
@@ -178,6 +179,7 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
     bet?.settled_selection ||
     bet?.settlement?.winner ||
     bet?.marketResult ||
+    bet?.result_data?.winning_outcome ||
     "";
 
   const createdAt = bet?.createdAt
