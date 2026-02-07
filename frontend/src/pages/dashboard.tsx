@@ -178,6 +178,52 @@ export default function Dashboard() {
     ).filter(Boolean);
   }
 
+  function hasScore(match: Match | null | undefined) {
+    if (!match) return false;
+
+    const runs = Number(match.runs);
+    const wkts = Number(match.wickets);
+    const overs = Number(match.overs);
+
+    if (
+      (Number.isFinite(runs) && runs > 0) ||
+      (Number.isFinite(wkts) && wkts > 0) ||
+      (Number.isFinite(overs) && overs > 0)
+    ) {
+      return true;
+    }
+
+    const parsedHome = parseTeamScore(match.scoreDetails, match.homeTeam);
+    const parsedAway = parseTeamScore(match.scoreDetails, match.awayTeam);
+
+    const parsedHasScore = (parsed: ReturnType<typeof parseTeamScore> | null) => {
+      if (!parsed) return false;
+      const runVal = parsed.score ? parseInt(parsed.score, 10) : NaN;
+      const overVal = parsed.overs ? parseFloat(parsed.overs) : NaN;
+      return (Number.isFinite(runVal) && runVal > 0) || (Number.isFinite(overVal) && overVal > 0);
+    };
+
+    return parsedHasScore(parsedHome) || parsedHasScore(parsedAway);
+  }
+
+  // Minimal toss line for dashboard cards; hide once scoring starts
+  function getTossLine(match: Match | null | undefined) {
+    if (!match || hasScore(match)) return null;
+    const winner = match.toss_won_by || null;
+    const decision =
+      match.elected_to || match.toss_decision || match.tossDecision || null;
+    if (!winner || !decision) return null;
+
+    const prettyDecision = (() => {
+      const d = String(decision).toLowerCase();
+      if (d.includes("bat")) return "bat";
+      if (d.includes("bowl")) return "bowl";
+      return decision;
+    })();
+
+    return `Toss: ${winner} won & elected to ${prettyDecision}`;
+  }
+
   function compactLabel(label?: string | null) {
     if (!label) return "";
     const v = label.trim();
@@ -269,7 +315,10 @@ export default function Dashboard() {
           m.scoreDetails === ordered[i].scoreDetails &&
           m.runs === ordered[i].runs &&
           m.wickets === ordered[i].wickets &&
-          m.overs === ordered[i].overs
+          m.overs === ordered[i].overs &&
+          m.toss_won_by === ordered[i].toss_won_by &&
+          (m.elected_to || m.toss_decision || m.tossDecision) ===
+            (ordered[i].elected_to || ordered[i].toss_decision || ordered[i].tossDecision)
       )
     ) {
       return;
@@ -290,8 +339,9 @@ export default function Dashboard() {
             m.id === payload.new.id
               ? {
                   ...m,
-                  status: payload.new.status,
-                  scoreDetails: payload.new.score_details ?? m.scoreDetails,
+                  status: (payload.new.display_status ?? payload.new.status ?? m.status) as Match["status"],
+                  scoreDetails:
+                    payload.new.display_score ?? payload.new.score_details ?? m.scoreDetails,
                   runs: payload.new.ro_score_runs ?? m.runs ?? null,
                   wickets: payload.new.ro_score_wickets ?? m.wickets ?? null,
                   overs:
@@ -305,6 +355,15 @@ export default function Dashboard() {
                   currentOver: payload.new.current_over ?? m.currentOver,
                   currentBall: payload.new.current_ball ?? m.currentBall,
                   updatedAt: payload.new.updated_at ?? m.updatedAt,
+                  toss_won_by:
+                    payload.new.toss_won_by ?? payload.new.ro_toss_won_by ?? m.toss_won_by ?? null,
+                  elected_to:
+                    payload.new.elected_to ?? payload.new.ro_toss_decision ?? m.elected_to ?? null,
+                  toss_decision:
+                    payload.new.elected_to ?? payload.new.ro_toss_decision ?? m.toss_decision ?? null,
+                  tossDecision:
+                    payload.new.elected_to ?? payload.new.ro_toss_decision ?? m.tossDecision ?? null,
+                  toss_recorded_at: payload.new.toss_recorded_at ?? m.toss_recorded_at ?? null,
                 }
               : m
           );
@@ -464,6 +523,8 @@ export default function Dashboard() {
                           "Match Winner",
                       };
 
+                    const tossLine = getTossLine(match);
+
                     const runners = matchWinnerMarket ? (matchWinnerMarket.runners || []).slice(0, 2) : [];
                     const countdownExact = formatCountdownExact(match.startTime);
 
@@ -528,6 +589,12 @@ export default function Dashboard() {
                             />
                           </div>
                         </div>
+
+                        {tossLine && (
+                          <div className="pt-1 text-center text-[12px] text-[#475569]">
+                            {tossLine}
+                          </div>
+                        )}
 
                         {/* Simple odds for Match Winner only */}
                         {runners.length > 0 && (

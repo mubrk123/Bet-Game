@@ -195,13 +195,6 @@ function extractSquadsFromPayload(payload: any): Squads {
   };
 }
 
-function compactLabel(label?: string | null) {
-  if (!label) return "";
-  const v = label.trim();
-  if (/^united states of america$/i.test(v)) return "USA";
-  return v;
-}
-
 function teamInitials(name: string) {
   if (!name) return "";
   const parts = name.trim().split(/\s+/);
@@ -237,19 +230,6 @@ function formatOverLabel(market: InstanceMarket | null | undefined): string | nu
   return null;
 }
 
-function compactTossLine(line: string | null): string | null {
-  if (!line) return null;
-  const m = line.match(/toss:\s*([^&]+?)(?:\s+won)?(?:.*?(bat|bowl))/i);
-  if (m) {
-    const team = m[1].trim();
-    const decision = (m[2] || "").trim().toLowerCase();
-    if (team && decision) return `Toss:${team}/${decision}`;
-  }
-  const m2 = line.match(/([^,]+)\s+won.*?(bat|bowl)/i);
-  if (m2) return `Toss:${m2[1].trim()}/${m2[2].trim().toLowerCase()}`;
-  return line;
-}
-
 function TeamBadge({ name, banner }: { name: string; banner?: string | null }) {
   const [imgError, setImgError] = useState(false);
   const resolvedBanner = banner || dicebearFor(name);
@@ -278,45 +258,6 @@ function TeamBadge({ name, banner }: { name: string; banner?: string | null }) {
       <p className="text-[11px] sm:text-xs text-[#2D3436] text-center max-w-[120px] truncate">{name}</p>
     </div>
   );
-}
-
-function extractTossWinner(source: any): string | null {
-  return (
-    source?.toss_won_by ||
-    source?.tossWinnerTeam ||
-    source?.toss_winner_team ||
-    source?.tossWinner ||
-    source?.toss_winner ||
-    source?.tossWinnerName ||
-    null
-  );
-}
-
-function extractTossDecision(source: any): string | null {
-  return (
-    source?.elected_to ||
-    source?.tossDecision ||
-    source?.toss_decision ||
-    source?.tossElected ||
-    source?.toss_elected ||
-    null
-  );
-}
-
-function formatTossLine(winner: string, decision: string) {
-  const d = String(decision).toLowerCase();
-  const pretty = d.includes("bat") ? "bat" : d.includes("bowl") ? "bowl" : String(decision);
-  return `Toss: ${winner} won & elected to ${pretty}`;
-}
-
-function getTossLine(...sources: any[]): string | null {
-  for (const src of sources) {
-    if (!src) continue;
-    const winner = extractTossWinner(src);
-    const decision = extractTossDecision(src);
-    if (winner && decision) return formatTossLine(winner, decision);
-  }
-  return null;
 }
 
 function formatScoreCompact(runs?: number | null, wickets?: number | null) {
@@ -1948,11 +1889,8 @@ export default function MatchDetail() {
     );
   }
 
-  const leagueLabel = compactLabel(match.tournament || match.competition || match.series || "League TBA");
   const matchTitle = `${match.homeTeam} vs ${match.awayTeam}`;
   const matchShortDate = formatShortDayTime(match.startTime);
-  const needLine =
-    activeInning >= 2 && required ? `${required.runs} needed from ${required.balls} balls` : null;
 
   const latestSix = pulseResults.slice(-6);
   const slots = Array.from({ length: 6 }, (_, idx) => latestSix[idx] ?? null);
@@ -2394,8 +2332,6 @@ export default function MatchDetail() {
     );
   };
 
-  const tossLine = getTossLine(match, realtimeData, liveScore);
-  const centerLine = needLine || compactTossLine(tossLine) || tossLine || leagueLabel;
   const inningsBreak = statusNote && /innings break/i.test(String(statusNote));
 
   return (
@@ -2414,12 +2350,7 @@ export default function MatchDetail() {
                   Back
                 </button>
 
-                {/* Center: toss / chase info */}
-                <div className="flex-1 flex justify-center px-2 min-w-0">
-                  <span className="text-center max-w-full whitespace-normal break-words text-[#374151] leading-snug">
-                    {centerLine}
-                  </span>
-                </div>
+                <div className="flex-1" />
 
                 {/* Right: live/status & innings break */}
                 <div className="flex items-center gap-2 justify-end min-w-[140px]">
