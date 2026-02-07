@@ -230,24 +230,24 @@ export default function Dashboard() {
     return `Toss: ${winner} won & elected to ${prettyDecision}`;
   }
 
-  function parseTarget(details: string | null | undefined): number | null {
-    if (!details) return null;
-    const s = details.toLowerCase();
-    const m1 = s.match(/target[:\\s]+(\\d+)/i);
-    if (m1?.[1]) return Number(m1[1]);
-    const m2 = s.match(/(\\d+)\\s+runs?\\s+to\\s+win/i);
-    if (m2?.[1]) return Number(m2[1]);
-    return null;
-  }
+  // function parseTarget(details: string | null | undefined): number | null {
+  //   if (!details) return null;
+  //   const s = details.toLowerCase();
+  //   const m1 = s.match(/target[:\\s]+(\\d+)/i);
+  //   if (m1?.[1]) return Number(m1[1]);
+  //   const m2 = s.match(/(\\d+)\\s+runs?\\s+to\\s+win/i);
+  //   if (m2?.[1]) return Number(m2[1]);
+  //   return null;
+  // }
 
-  function parseRequired(details: string | null | undefined): { runs: number; balls?: number | null } | null {
-    if (!details) return null;
-    const m1 = details.match(/(\\d+)\\s+runs?\\s+(?:to|needed to)\\s+win/i);
-    if (m1?.[1]) return { runs: Number(m1[1]), balls: null };
-    const m2 = details.match(/need\\s+(\\d+)\\s+runs?\\s+in\\s+(\\d+)\\s+balls/i);
-    if (m2?.[1] && m2?.[2]) return { runs: Number(m2[1]), balls: Number(m2[2]) };
-    return null;
-  }
+  // function parseRequired(details: string | null | undefined): { runs: number; balls?: number | null } | null {
+  //   if (!details) return null;
+  //   const m1 = details.match(/(\\d+)\\s+runs?\\s+(?:to|needed to)\\s+win/i);
+  //   if (m1?.[1]) return { runs: Number(m1[1]), balls: null };
+  //   const m2 = details.match(/need\\s+(\\d+)\\s+runs?\\s+in\\s+(\\d+)\\s+balls/i);
+  //   if (m2?.[1] && m2?.[2]) return { runs: Number(m2[1]), balls: Number(m2[2]) };
+  //   return null;
+  // }
 
   function compactLabel(label?: string | null) {
     if (!label) return "";
