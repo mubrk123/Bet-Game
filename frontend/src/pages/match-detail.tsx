@@ -1314,8 +1314,20 @@ export default function MatchDetail() {
     });
   }, [rotatedBatters.striker, rotatedBatters.nonStriker, derived.bowler]);
 
-  const displayStriker = rotatedBatters.striker.name !== "—" ? rotatedBatters.striker : stablePlayers.striker;
-  const displayNonStriker = rotatedBatters.nonStriker.name !== "—" ? rotatedBatters.nonStriker : stablePlayers.nonStriker;
+  const normalizeBatter = (b: any) => {
+    const name = b?.name || "—";
+    const runsVal = b?.runs;
+    const ballsVal = b?.balls;
+    const runs = runsVal === "—" || runsVal === undefined || runsVal === null ? (name === "—" ? "—" : "0") : String(runsVal);
+    const balls =
+      ballsVal === "—" || ballsVal === undefined || ballsVal === null ? (name === "—" ? "—" : "0") : String(ballsVal);
+    return { ...b, name, runs, balls };
+  };
+
+  const displayStriker = normalizeBatter(rotatedBatters.striker.name !== "—" ? rotatedBatters.striker : stablePlayers.striker);
+  const displayNonStriker = normalizeBatter(
+    rotatedBatters.nonStriker.name !== "—" ? rotatedBatters.nonStriker : stablePlayers.nonStriker
+  );
   const displayBowler = derived.bowler.name !== "—" ? derived.bowler : stablePlayers.bowler;
 
   const battingTeamResolved = useMemo(() => {
