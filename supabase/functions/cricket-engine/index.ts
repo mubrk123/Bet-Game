@@ -988,36 +988,9 @@ async function handleNonBallUpdate(body: any) {
   if (snapshot?.play_status) update.ro_play_status = snapshot.play_status;
   if (snapshot?.innings) update.ro_innings_summary = snapshot.innings;
 
-  // Target / first-innings runs (persist even if provider omits explicit target)
-  const firstInningsRuns = (() => {
-    const inningsList: any[] =
-      (Array.isArray(snapshot?.innings) && snapshot?.innings) ||
-      (Array.isArray((snapshot as any)?.match?.innings) && (snapshot as any)?.match?.innings) ||
-      (Array.isArray((snapshot as any)?.innings_summary) && (snapshot as any)?.innings_summary) ||
-      [];
-    if (!inningsList.length) return null;
-    const first = inningsList[0];
-    const runs = Number(
-      first?.score?.runs ??
-        first?.runs ??
-        first?.total ??
-        first?.score ??
-        (typeof first?.score_details === "string"
-          ? (first.score_details.match(/(\d+)\s*\/?\s*\d*/)?.[1] ? Number(RegExp.$1) : NaN)
-          : NaN)
-    );
-    return Number.isFinite(runs) && runs > 0 ? runs : null;
-  })();
-
-  const target =
-    snapshot?.target_runs ??
-    snapshot?.target?.runs ??
-    snapshot?.required?.target ??
-    firstInningsRuns ??
-    prevRow?.ro_target_runs ??
-    null;
-
-  if (Number.isFinite(Number(target)) && Number(target) > 0) update.ro_target_runs = Number(target);
+  // Target if present
+  const target = snapshot?.target_runs ?? snapshot?.target?.runs ?? snapshot?.required?.target ?? null;
+  if (Number.isFinite(Number(target))) update.ro_target_runs = Number(target);
 
   await supabase.from("matches").update(update).eq("id", matchId);
 
@@ -1462,6 +1435,7 @@ async function settleInstanceMarkets(
     await settleNextWicketMethodMarkets(matchId, inning, normalizedBall.ro_wicket_kind);
   }
 }
+
 async function settleMatchWinnerMarket(
   matchId: string,
   roMatchKey?: string | null,
@@ -1522,7 +1496,7 @@ async function settleMatchWinnerMarket(
     snap?.team_won,
   ];
 
-  const winnerRaw =
+    const winnerRaw =
     winnerCandidates.find((x) => typeof x === "string" && x.length > 0) || null;
 
   if (!winnerRaw) {
@@ -1533,12 +1507,40 @@ async function settleMatchWinnerMarket(
     return;
   }
 
-  const normWinner = normalizeTeamKey(String(winnerRaw));
+  // 🔧 NEW: map "a"/"b" to real team key/name
+  const winnerStr = String(winnerRaw).toLowerCase().trim();
+
+  let normWinner: string;
+
+  if (winnerStr === "a" || winnerStr === "b") {
+    const { data: mrow, error: mErr2 } = await supabase
+      .from("matches")
+      .select("ro_team_home_key, ro_team_home_name, ro_team_away_key, ro_team_away_name")
+      .eq("id", matchId)
+      .maybeSingle();
+
+    if (mErr2 || !mrow) {
+      console.error("[settleMatchWinnerMarket] failed to read match teams", {
+        matchId,
+        error: mErr2,
+      });
+      return;
+    }
+
+    const isHome = winnerStr === "a";
+    const teamKey = isHome ? mrow.ro_team_home_key : mrow.ro_team_away_key;
+    const teamName = isHome ? mrow.ro_team_home_name : mrow.ro_team_away_name;
+
+    normWinner = normalizeTeamKey(String(teamKey || teamName));
+  } else {
+    normWinner = normalizeTeamKey(String(winnerRaw));
+  }
 
   const { data: runners, error: rErr } = await supabase
     .from("market_runners")
     .select("id, runner_name, ro_team_key")
     .eq("market_id", market.id);
+
 
   if (rErr || !runners?.length) {
     console.error("[settleMatchWinnerMarket] runners lookup failed", {
@@ -1707,87 +1709,313 @@ async function voidOpenInstanceMarketsForMatch(
   }
 }
 
-async function settleMarketBets(marketId: string, winningOutcome: string) {
-  const { data: bets } = await supabase
-    .from("bets")
-    .select("id, user_id, runner_name, stake, odds, bet_type, potential_payout, liability")
-    .eq("market_id", marketId)
-    .eq("bet_status", "OPEN");
+// async function settleMarketBets(marketId: string, winningOutcome: string) {
+//   const { data: bets } = await supabase
+//     .from("bets")
+//     .select("id, user_id, runner_name, stake, odds, bet_type, potential_payout, liability")
+//     .eq("market_id", marketId)
+//     .eq("bet_status", "OPEN");
 
-  if (!bets?.length) return;
+//   if (!bets?.length) return;
+
+//   const nowIso = new Date().toISOString();
+
+//   for (const b of bets) {
+//   const isWin = b.runner_name === winningOutcome;
+//   const stake = Number(b.stake ?? 0);
+//   const odds = Number(b.odds ?? 0);
+//   const betType = (b.bet_type || "BACK") as "BACK" | "LAY";
+
+//   const requiredAmount =
+//     betType === "LAY" ? Number(b.liability ?? stake * Math.max(0, odds - 1)) : stake;
+
+//   const profit = isWin
+//     ? Number(
+//         b.potential_payout ??
+//           (betType === "LAY" ? stake : stake * Math.max(0, odds - 1)),
+//       )
+//     : 0;
+
+//   const credit = isWin ? Number((profit + requiredAmount).toFixed(2)) : 0;
+
+//   console.log("[settleMarketBets] candidate", {
+//     betId: b.id,
+//     userId: b.user_id,
+//     runner_name: b.runner_name,
+//     winningOutcome,
+//     isWin,
+//     stake,
+//     odds,
+//     betType,
+//     requiredAmount,
+//     profit,
+//     credit,
+//   });
+
+//   const { data: claimed, error: claimErr } = await supabase
+//     .from("bets")
+//     .update({
+//       bet_status: isWin ? "WON" : "LOST",
+//       winning_outcome: winningOutcome,
+//       payout: profit,
+//       settled_at: nowIso,
+//       updated_at: nowIso,
+//     })
+//     .eq("id", b.id)
+//     .eq("bet_status", "OPEN")
+//     .select("id")
+//     .maybeSingle();
+
+//   if (claimErr) {
+//     console.error("[settleMarketBets] bet claim failed", { betId: b.id, claimErr });
+//     throw new ApiError(claimErr.message);
+//   }
+//   if (!claimed) {
+//     console.log("[settleMarketBets] bet already claimed, skipping", { betId: b.id });
+//     continue;
+//   }
+
+//   const { data: userRow, error: userErr } = await supabase
+//     .from("users")
+//     .select("balance, exposure")
+//     .eq("id", b.user_id)
+//     .single();
+
+//   if (userErr || !userRow) {
+//     console.error("[settleMarketBets] missing user row", { betId: b.id, userId: b.user_id, userErr });
+//     continue;
+//   }
+
+//   const balanceBefore = Number(userRow.balance ?? 0);
+//   const exposureBefore = Number(userRow.exposure ?? 0);
+//   const exposureAfter = Math.max(0, Number((exposureBefore - requiredAmount).toFixed(2)));
+//   const balanceAfter = isWin
+//     ? Number((balanceBefore + credit).toFixed(2))
+//     : balanceBefore;
+
+//   const { error: userUpdateErr } = await supabase
+//     .from("users")
+//     .update({ balance: balanceAfter, exposure: exposureAfter })
+//     .eq("id", b.user_id);
+
+//   if (userUpdateErr) {
+//     console.error("[settleMarketBets] user update failed", {
+//       betId: b.id,
+//       userId: b.user_id,
+//       userUpdateErr,
+//     });
+//     continue;
+//   }
+
+//   const { error: walletErr } = await supabase.from("wallet_transactions").insert({
+//     user_id: b.user_id,
+//     amount: credit,
+//     type: isWin ? "BET_WON" : "BET_LOST",
+//     description: `Instance bet ${isWin ? "won" : "lost"}: ${winningOutcome}`,
+//     reference_id: b.id,
+//     reference_type: "bet",
+//     balance_before: balanceBefore,
+//     balance_after: balanceAfter,
+//   });
+
+//   if (walletErr) {
+//     console.error("[settleMarketBets] wallet insert failed", {
+//       betId: b.id,
+//       userId: b.user_id,
+//       walletErr,
+//     });
+//   }
+// }
+
+// }
+async function settleMarketBets(marketId: string, winningOutcome: string) {
+  console.log("🔍 [DEBUG settleMarketBets] START", { marketId, winningOutcome });
+
+  // Look for ALL bets (OPEN and already settled)
+  const { data: bets, error: fetchError } = await supabase
+    .from("bets")
+    .select("id, user_id, runner_name, stake, odds, bet_type, potential_payout, bet_status, payout")
+    .eq("market_id", marketId)
+    .in("bet_status", ["OPEN", "WON", "LOST"]);
+
+  console.log("🔍 [DEBUG settleMarketBets] ALL bets found:", {
+    count: bets?.length || 0,
+    betStatuses: bets?.map(b => ({ id: b.id, status: b.bet_status, payout: b.payout }))
+  });
+
+  if (fetchError) {
+    console.error("❌ [DEBUG settleMarketBets] Fetch error:", fetchError);
+    throw new ApiError(fetchError.message, 500);
+  }
+
+  if (!bets?.length) {
+    console.log("⚠️ [DEBUG settleMarketBets] No bets found at all");
+    return;
+  }
 
   const nowIso = new Date().toISOString();
 
   for (const b of bets) {
+    console.log("\n🔍 [DEBUG settleMarketBets] Processing bet:", {
+      betId: b.id,
+      userId: b.user_id,
+      runnerName: b.runner_name,
+      currentStatus: b.bet_status,
+      alreadyPaid: b.payout,
+      winningOutcome,
+      stake: b.stake,
+      odds: b.odds,
+    });
+
+    // Skip if already settled WITH payout
+    if (b.bet_status !== "OPEN" && b.payout != null) {
+      console.log("⚠️ [DEBUG settleMarketBets] Bet already settled with payout, skipping");
+      continue;
+    }
+
     const isWin = b.runner_name === winningOutcome;
     const stake = Number(b.stake ?? 0);
     const odds = Number(b.odds ?? 0);
     const betType = (b.bet_type || "BACK") as "BACK" | "LAY";
-    const requiredAmount =
-      betType === "LAY" ? Number(b.liability ?? stake * Math.max(0, odds - 1)) : stake;
 
-    // Profit (without returned stake); fall back to odds if potential_payout missing
+    const requiredAmount = stake;
+    
+    // FIXED: Always calculate profit, don't rely on potential_payout
     const profit = isWin
-      ? Number(
-          b.potential_payout ??
-            (betType === "LAY" ? stake : stake * Math.max(0, odds - 1)),
-        )
+      ? Number((stake * Math.max(0, odds - 1)).toFixed(2))
       : 0;
+      
+    const credit = isWin ? Number((profit + requiredAmount).toFixed(2)) : 0;
 
-    // Claim the bet once to avoid double-settlement
-    const { data: claimed, error: claimErr } = await supabase
-      .from("bets")
-      .update({
-        bet_status: isWin ? "WON" : "LOST",
-        winning_outcome: winningOutcome,
-        payout: profit,
-        settled_at: nowIso,
-        updated_at: nowIso,
-      })
-      .eq("id", b.id)
-      .eq("bet_status", "OPEN")
-      .select("id")
-      .maybeSingle();
+    console.log("🔍 [DEBUG settleMarketBets] Calculations:", {
+      isWin,
+      requiredAmount,
+      profit,
+      credit,
+      potential_payout: b.potential_payout
+    });
 
-    if (claimErr) throw new ApiError(claimErr.message);
-    if (!claimed) continue; // already handled elsewhere
+    // ========== UPDATE BET (only if OPEN or payout null) ==========
+    if (b.bet_status === "OPEN" || (b.bet_status !== "OPEN" && b.payout == null)) {
+      console.log("🔍 [DEBUG settleMarketBets] Updating bet status...");
+      
+      const updateResult = await supabase
+        .from("bets")
+        .update({
+          bet_status: isWin ? "WON" : "LOST",
+          winning_outcome: winningOutcome,
+          payout: profit,
+          settled_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq("id", b.id)
+        .eq("user_id", b.user_id)
+        .select("id, bet_status, payout")
+        .single();
 
-    // Fetch user state after claim to avoid races
-    const { data: userRow, error: userErr } = await supabase
-      .from("users")
-      .select("balance, exposure")
-      .eq("id", b.user_id)
-      .single();
+      console.log("🔍 [DEBUG settleMarketBets] Bet update result:", {
+        success: !!updateResult.data,
+        data: updateResult.data,
+        error: updateResult.error,
+      });
 
-    if (userErr || !userRow) {
-      console.error("[settleMarketBets] missing user row", { betId: b.id, userId: b.user_id, userErr });
-      continue;
+      if (updateResult.error) {
+        console.error("❌ [DEBUG settleMarketBets] Bet update FAILED:", updateResult.error);
+        continue;
+      }
+
+      if (!updateResult.data) {
+        console.error("❌ [DEBUG settleMarketBets] Bet not found");
+        continue;
+      }
+
+      console.log("✅ [DEBUG settleMarketBets] Bet updated successfully");
     }
 
-    const balanceBefore = Number(userRow.balance ?? 0);
-    const exposureBefore = Number(userRow.exposure ?? 0);
-    const exposureAfter = Math.max(0, Number((exposureBefore - requiredAmount).toFixed(2)));
-    const credit = isWin ? Number((profit + requiredAmount).toFixed(2)) : 0;
-    const balanceAfter = isWin
-      ? Number((balanceBefore + credit).toFixed(2))
-      : balanceBefore;
+    // ========== UPDATE USER BALANCE (only if WON and payout > 0) ==========
+    if (isWin && profit > 0) {
+      console.log("🔍 [DEBUG settleMarketBets] Updating user balance...");
+      
+      const { data: userRow, error: userErr } = await supabase
+        .from("users")
+        .select("balance, exposure")
+        .eq("id", b.user_id)
+        .single();
 
-    await supabase
-      .from("users")
-      .update({ balance: balanceAfter, exposure: exposureAfter })
-      .eq("id", b.user_id);
+      if (userErr || !userRow) {
+        console.error("❌ [DEBUG settleMarketBets] User fetch failed:", {
+          userId: b.user_id,
+          error: userErr?.message
+        });
+        continue;
+      }
 
-    await supabase.from("wallet_transactions").insert({
-      user_id: b.user_id,
-      amount: credit,
-      type: isWin ? "BET_WON" : "BET_LOST",
-      description: `Instance bet ${isWin ? "won" : "lost"}: ${winningOutcome}`,
-      reference_id: b.id,
-      reference_type: "bet",
-      balance_before: balanceBefore,
-      balance_after: balanceAfter,
-    });
+      console.log("🔍 [DEBUG settleMarketBets] User before update:", {
+        balanceBefore: userRow.balance,
+        exposureBefore: userRow.exposure
+      });
+
+      const balanceBefore = Number(userRow.balance ?? 0);
+      const exposureBefore = Number(userRow.exposure ?? 0);
+      const exposureAfter = Math.max(0, Number((exposureBefore - requiredAmount).toFixed(2)));
+      const balanceAfter = Number((balanceBefore + credit).toFixed(2));
+
+      console.log("🔍 [DEBUG settleMarketBets] User after calculations:", {
+        exposureAfter,
+        balanceAfter
+      });
+
+      const { error: userUpdateErr } = await supabase
+        .from("users")
+        .update({ 
+          balance: balanceAfter, 
+          exposure: exposureAfter 
+        })
+        .eq("id", b.user_id);
+
+      if (userUpdateErr) {
+        console.error("❌ [DEBUG settleMarketBets] User update failed:", {
+          userId: b.user_id,
+          error: userUpdateErr.message
+        });
+        continue;
+      }
+
+      console.log("✅ [DEBUG settleMarketBets] User balance updated");
+
+      // ========== CREATE WALLET TRANSACTION ==========
+      console.log("🔍 [DEBUG settleMarketBets] Creating wallet transaction...");
+      
+      const { error: walletErr } = await supabase.from("wallet_transactions").insert({
+        user_id: b.user_id,
+        amount: credit,
+        type: "BET_WON",
+        description: `Instance bet won: ${winningOutcome}`,
+        reference_id: b.id,
+        reference_type: "bet",
+        balance_before: balanceBefore,
+        balance_after: balanceAfter,
+      });
+
+      if (walletErr) {
+        console.error("❌ [DEBUG settleMarketBets] Wallet transaction failed:", {
+          betId: b.id,
+          userId: b.user_id,
+          error: walletErr.message
+        });
+      } else {
+        console.log("✅ [DEBUG settleMarketBets] Wallet transaction created");
+      }
+    } else if (!isWin) {
+      console.log("⚠️ [DEBUG settleMarketBets] Bet lost, no wallet update needed");
+    } else {
+      console.log("⚠️ [DEBUG settleMarketBets] Bet won but profit = 0, check odds/stake");
+    }
+
+    console.log("✅ [DEBUG settleMarketBets] Bet processing COMPLETE");
   }
+
+  console.log("🏁 [DEBUG settleMarketBets] END - All bets processed");
 }
 
 // Close any lingering OPEN NEXT_BALL markets that are already in the past

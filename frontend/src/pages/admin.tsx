@@ -59,10 +59,10 @@ function StatusDot({
   label?: string;
 }) {
   const map = {
-    emerald: "bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.35)]",
-    amber: "bg-amber-400 shadow-[0_0_18px_rgba(251,191,36,0.35)]",
-    crimson: "bg-rose-500 shadow-[0_0_18px_rgba(244,63,94,0.35)]",
-    slate: "bg-slate-400 shadow-none",
+    emerald: "bg-emerald-500",
+    amber: "bg-amber-500",
+    crimson: "bg-rose-500",
+    slate: "bg-slate-400",
   };
   return (
     <div className="inline-flex items-center gap-2">
@@ -91,17 +91,17 @@ function KpiCard({
 }) {
   const toneBorder =
     tone === "emerald"
-      ? "border-emerald-500/15"
+      ? "border-emerald-100"
       : tone === "amber"
-      ? "border-amber-500/15"
+      ? "border-amber-100"
       : tone === "crimson"
-      ? "border-rose-500/15"
-      : "border-white/10";
+      ? "border-rose-100"
+      : "border-slate-200";
 
   return (
     <Card
       className={cn(
-        "bg-white/[0.03] border shadow-[0_10px_40px_rgba(0,0,0,0.35)] rounded-2xl",
+        "bg-white border shadow-sm rounded-2xl",
         toneBorder,
         className
       )}
@@ -115,7 +115,9 @@ function KpiCard({
         </div>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        <div className="text-2xl font-bold font-mono tabular-nums">{value}</div>
+        <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+          {value}
+        </div>
         {sub ? (
           <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
         ) : null}
@@ -290,7 +292,8 @@ export default function AdminPanel() {
       setInitialBalance("0");
       toast({
         title: "User Created",
-        description: "New user account created. Balance deducted from your account.",
+        description:
+          "New user account created. Balance deducted from your account.",
         className: "bg-emerald-600 text-white border-none",
       });
     },
@@ -532,7 +535,9 @@ export default function AdminPanel() {
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
             <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-            <p className="mt-4 text-muted-foreground">Loading command center...</p>
+            <p className="mt-4 text-muted-foreground">
+              Loading command center...
+            </p>
           </div>
         </div>
       </AppShell>
@@ -542,12 +547,12 @@ export default function AdminPanel() {
   return (
     <AppShell>
       {/* COMMAND CENTER BACKDROP */}
-      <div className="min-h-[calc(100vh-6rem)] rounded-3xl p-4 sm:p-6 bg-[radial-gradient(1200px_circle_at_30%_-10%,rgba(59,130,246,0.10),transparent_50%),radial-gradient(900px_circle_at_90%_10%,rgba(16,185,129,0.08),transparent_55%),linear-gradient(to_bottom,rgba(255,255,255,0.02),transparent)] border border-white/5">
+      <div className="min-h-[calc(100vh-6rem)] rounded-3xl p-4 sm:p-6 bg-white border border-slate-200 text-slate-900">
         {/* HEADER + QUICK SEARCH */}
         <div className="flex flex-col gap-4">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div className="space-y-1">
-              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-white">
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
                 {isSuperAdmin
                   ? "Super Admin Command Center"
                   : "Admin Command Center"}
@@ -558,7 +563,7 @@ export default function AdminPanel() {
                   label={isSuperAdmin ? "System: Online" : "Operations: Active"}
                 />
                 {!isSuperAdmin ? (
-                  <span className="text-xs font-mono text-emerald-300">
+                  <span className="text-xs font-mono text-emerald-700">
                     Balance: ₹{(currentUser?.balance || 0).toLocaleString()}
                   </span>
                 ) : (
@@ -576,13 +581,12 @@ export default function AdminPanel() {
                   <DialogTrigger asChild>
                     <Button
                       data-testid="button-create-admin"
-                      className="gap-2 flex-1 sm:flex-none rounded-xl bg-white/5 hover:bg-white/8 border border-white/10 text-white"
-                      variant="outline"
+                      className="gap-2 flex-1 sm:flex-none rounded-xl bg-slate-900 text-white hover:bg-slate-800"
                     >
                       <Crown className="w-4 h-4 text-amber-300" /> Create Admin
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="bg-[#0B0F1A] border-white/10">
+                  <DialogContent className="bg-white border border-slate-200 rounded-2xl text-slate-900">
                     <DialogHeader>
                       <DialogTitle>Create New Admin</DialogTitle>
                     </DialogHeader>
@@ -594,7 +598,7 @@ export default function AdminPanel() {
                           value={newUsername}
                           onChange={(e) => setNewUsername(e.target.value)}
                           placeholder="e.g. admin1"
-                          className="rounded-xl bg-white/5 border-white/10"
+                          className="rounded-xl"
                         />
                       </div>
                       <div className="space-y-2">
@@ -605,7 +609,7 @@ export default function AdminPanel() {
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="Admin password"
-                          className="rounded-xl bg-white/5 border-white/10"
+                          className="rounded-xl"
                         />
                       </div>
                       <div className="space-y-2">
@@ -617,13 +621,12 @@ export default function AdminPanel() {
                           type="number"
                           value={initialBalance}
                           onChange={(e) => setInitialBalance(e.target.value)}
-                          className="rounded-xl bg-white/5 border-white/10"
+                          className="rounded-xl"
                         />
                       </div>
                       <Button
                         data-testid="button-submit-create-admin"
-                        className="w-full rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-400/25"
-                        variant="outline"
+                        className="w-full rounded-xl bg-amber-500 text-white hover:bg-amber-600"
                         onClick={handleCreateAdmin}
                         disabled={createAdminMutation.isPending}
                       >
@@ -639,13 +642,12 @@ export default function AdminPanel() {
                   <DialogTrigger asChild>
                     <Button
                       data-testid="button-create-user"
-                      className="gap-2 flex-1 sm:flex-none rounded-xl bg-white/5 hover:bg-white/8 border border-white/10 text-white"
-                      variant="outline"
+                      className="gap-2 flex-1 sm:flex-none rounded-xl bg-slate-900 text-white hover:bg-slate-800"
                     >
                       <Users className="w-4 h-4 text-emerald-300" /> Create User
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="bg-[#0B0F1A] border-white/10">
+                  <DialogContent className="bg-white border border-slate-200 rounded-2xl text-slate-900">
                     <DialogHeader>
                       <DialogTitle>Create New User</DialogTitle>
                     </DialogHeader>
@@ -661,7 +663,7 @@ export default function AdminPanel() {
                           value={newUsername}
                           onChange={(e) => setNewUsername(e.target.value)}
                           placeholder="e.g. player123"
-                          className="rounded-xl bg-white/5 border-white/10"
+                          className="rounded-xl"
                         />
                       </div>
                       <div className="space-y-2">
@@ -672,7 +674,7 @@ export default function AdminPanel() {
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="User password"
-                          className="rounded-xl bg-white/5 border-white/10"
+                          className="rounded-xl"
                         />
                       </div>
                       <div className="space-y-2">
@@ -685,13 +687,12 @@ export default function AdminPanel() {
                           value={initialBalance}
                           onChange={(e) => setInitialBalance(e.target.value)}
                           max={currentUser?.balance || 0}
-                          className="rounded-xl bg-white/5 border-white/10"
+                          className="rounded-xl"
                         />
                       </div>
                       <Button
                         data-testid="button-submit-create-user"
-                        className="w-full rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-400/25"
-                        variant="outline"
+                        className="w-full rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
                         onClick={handleCreateUser}
                         disabled={createUserMutation.isPending}
                       >
@@ -707,7 +708,7 @@ export default function AdminPanel() {
           </div>
 
           {/* Persistent Quick Search (User ID / Username) */}
-          <div className="flex items-center gap-2 rounded-2xl bg-white/[0.03] border border-white/10 px-3 py-2">
+          <div className="flex items-center gap-2 rounded-2xl bg-white border border-slate-200 px-3 py-2 shadow-sm">
             <Search className="h-4 w-4 text-muted-foreground" />
             <Input
               value={userSearch}
@@ -727,7 +728,7 @@ export default function AdminPanel() {
                 className="col-span-2 lg:col-span-3"
                 title="Admins"
                 value={admins.length}
-                icon={<Crown className="h-4 w-4 text-amber-300" />}
+                icon={<Crown className="h-4 w-4 text-amber-500" />}
                 tone="amber"
               />
               <KpiCard
@@ -735,7 +736,7 @@ export default function AdminPanel() {
                 title="Network Balance"
                 value={`₹${(totalAdminBalance + totalUserBalance).toLocaleString()}`}
                 sub="Admins + Users"
-                icon={<Wallet className="h-4 w-4 text-emerald-300" />}
+                icon={<Wallet className="h-4 w-4 text-emerald-500" />}
                 tone="emerald"
               />
               <KpiCard
@@ -743,7 +744,7 @@ export default function AdminPanel() {
                 title="Total Bets"
                 value={bets.length}
                 sub="Across the network"
-                icon={<Activity className="h-4 w-4 text-sky-300" />}
+                icon={<Activity className="h-4 w-4 text-sky-500" />}
                 tone="slate"
               />
             </>
@@ -753,7 +754,7 @@ export default function AdminPanel() {
                 className="col-span-2 lg:col-span-4"
                 title="Your Balance"
                 value={`₹${(currentUser?.balance || 0).toLocaleString()}`}
-                icon={<Wallet className="h-4 w-4 text-emerald-300" />}
+                icon={<Wallet className="h-4 w-4 text-emerald-500" />}
                 tone="emerald"
               />
               <KpiCard
@@ -761,7 +762,7 @@ export default function AdminPanel() {
                 title="Distributed"
                 value={`₹${totalUserBalance.toLocaleString()}`}
                 sub="Total issued to players"
-                icon={<ArrowRightLeft className="h-4 w-4 text-amber-300" />}
+                icon={<ArrowRightLeft className="h-4 w-4 text-amber-500" />}
                 tone="amber"
               />
               <KpiCard
@@ -769,7 +770,7 @@ export default function AdminPanel() {
                 title="Total Bets"
                 value={bets.length}
                 sub="Last refresh: 30s"
-                icon={<Activity className="h-4 w-4 text-sky-300" />}
+                icon={<Activity className="h-4 w-4 text-sky-500" />}
                 tone="slate"
               />
             </>
@@ -780,28 +781,28 @@ export default function AdminPanel() {
             title="Active Users"
             value={clientUsers.length}
             sub="Players under management"
-            icon={<Users className="h-4 w-4 text-indigo-300" />}
+            icon={<Users className="h-4 w-4 text-indigo-500" />}
             tone="slate"
           />
         </div>
 
         {/* SUPER ADMIN: ADMIN MANAGEMENT */}
         {isSuperAdmin && (
-          <Card className="mt-6 bg-white/[0.03] border-white/10 rounded-2xl">
+          <Card className="mt-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
             <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <CardTitle>Admin Management</CardTitle>
                 <CardDescription>Add balance to admin accounts</CardDescription>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-white/[0.03] p-2 rounded-2xl border border-white/10 w-full sm:w-auto">
-                <span className="text-xs font-bold text-muted-foreground uppercase whitespace-nowrap">
-                  Add Balance
+              <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-2 rounded-2xl border border-slate-200 w-full sm:w-auto">
+                <span className="text-xs font-bold text-slate-700 uppercase whitespace-nowrap">
+                  Distribute
                 </span>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <select
                     data-testid="select-admin"
-                    className="h-9 flex-1 sm:w-[170px] bg-white/[0.03] border border-white/10 rounded-xl text-xs px-3"
+                    className="h-9 flex-1 sm:w-[170px] bg-white border border-slate-200 rounded-xl text-xs px-3 text-slate-900"
                     value={selectedAdminId}
                     onChange={(e) => setSelectedAdminId(e.target.value)}
                   >
@@ -815,15 +816,14 @@ export default function AdminPanel() {
                   <Input
                     data-testid="input-add-balance"
                     placeholder="Amount"
-                    className="h-9 w-28 rounded-xl bg-white/[0.03] border-white/10"
+                    className="h-9 w-28 rounded-xl text-slate-900"
                     type="number"
                     value={addBalanceAmount}
                     onChange={(e) => setAddBalanceAmount(e.target.value)}
                   />
                   <Button
                     data-testid="button-add-balance"
-                    className="h-9 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-400/25"
-                    variant="outline"
+                    className="h-9 rounded-xl bg-amber-500 text-white hover:bg-amber-600"
                     onClick={handleAddBalanceToAdmin}
                     disabled={addBalanceToAdminMutation.isPending}
                   >
@@ -833,31 +833,45 @@ export default function AdminPanel() {
               </div>
             </CardHeader>
 
-            <CardContent className="overflow-x-auto">
+            <CardContent className="overflow-x-auto text-slate-900 text-sm">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Admin</TableHead>
-                    <TableHead>Balance</TableHead>
-                    <TableHead>Users Created</TableHead>
-                    <TableHead>Total Distributed</TableHead>
+                    <TableHead className="text-slate-600">Admin</TableHead>
+                    <TableHead className="text-slate-600">Balance</TableHead>
+                    <TableHead className="text-slate-600">
+                      Users Created
+                    </TableHead>
+                    <TableHead className="text-slate-600">
+                      Total Distributed
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
-                <TableBody>
+                <TableBody className="text-slate-800">
                   {admins.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground">
+                      <TableCell
+                        colSpan={4}
+                        className="text-center text-slate-500"
+                      >
                         No admins created yet
                       </TableCell>
                     </TableRow>
                   ) : (
                     admins.map((admin) => (
-                      <TableRow key={admin.id} data-testid={`admin-row-${admin.username}`}>
-                        <TableCell className="font-medium">{admin.username}</TableCell>
-                        <TableCell className="font-mono text-emerald-300">
+                      <TableRow
+                        key={admin.id}
+                        data-testid={`admin-row-${admin.username}`}
+                      >
+                        <TableCell className="font-medium">
+                          {admin.username}
+                        </TableCell>
+                        <TableCell className="font-mono text-emerald-700">
                           ₹{parseFloat(admin.balance).toLocaleString()}
                         </TableCell>
-                        <TableCell className="font-mono">{admin.usersCreated || 0}</TableCell>
+                        <TableCell className="font-mono">
+                          {admin.usersCreated || 0}
+                        </TableCell>
                         <TableCell className="font-mono">
                           ₹{(admin.totalDistributed || 0).toLocaleString()}
                         </TableCell>
@@ -871,7 +885,7 @@ export default function AdminPanel() {
         )}
 
         {/* USERS TABLE (Expandable Rows) */}
-        <Card className="mt-6 bg-white/[0.03] border-white/10 rounded-2xl">
+        <Card className="mt-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
           <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <CardTitle>{isSuperAdmin ? "All Users" : "Your Users"}</CardTitle>
@@ -879,14 +893,14 @@ export default function AdminPanel() {
             </div>
 
             {!isSuperAdmin && (
-              <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-white/[0.03] p-2 rounded-2xl border border-white/10 w-full sm:w-auto">
-                <span className="text-xs font-bold text-muted-foreground uppercase whitespace-nowrap">
+              <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-slate-50 p-2 rounded-2xl border border-slate-200 w-full sm:w-auto">
+                <span className="text-xs font-bold text-slate-700 uppercase whitespace-nowrap">
                   Distribute
                 </span>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <select
                     data-testid="select-user"
-                    className="h-9 flex-1 sm:w-[190px] bg-white/[0.03] border border-white/10 rounded-xl text-xs px-3"
+                    className="h-9 flex-1 sm:w-[190px] bg-white border border-slate-200 rounded-xl text-xs px-3 text-slate-900"
                     value={selectedUserId}
                     onChange={(e) => setSelectedUserId(e.target.value)}
                   >
@@ -901,7 +915,7 @@ export default function AdminPanel() {
                   <Input
                     data-testid="input-distribute-amount"
                     placeholder="Amount"
-                    className="h-9 w-28 rounded-xl bg-white/[0.03] border-white/10"
+                    className="h-9 w-28 rounded-xl text-slate-900"
                     type="number"
                     value={distributeAmount}
                     onChange={(e) => setDistributeAmount(e.target.value)}
@@ -909,8 +923,7 @@ export default function AdminPanel() {
 
                   <Button
                     data-testid="button-distribute"
-                    className="h-9 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-200 border border-emerald-400/25"
-                    variant="outline"
+                    className="h-9 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
                     onClick={handleDistributeBalance}
                     disabled={distributeBalanceMutation.isPending}
                   >
@@ -921,21 +934,26 @@ export default function AdminPanel() {
             )}
           </CardHeader>
 
-          <CardContent className="overflow-x-auto">
+          <CardContent className="overflow-x-auto text-slate-900 text-sm">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Balance</TableHead>
-                  <TableHead>Exposure</TableHead>
-                  <TableHead>W/L</TableHead>
-                  <TableHead className="w-32 text-right">Actions</TableHead>
+                  <TableHead className="text-slate-600">User</TableHead>
+                  <TableHead className="text-slate-600">Balance</TableHead>
+                  <TableHead className="text-slate-600">Exposure</TableHead>
+                  <TableHead className="text-slate-600">W/L</TableHead>
+                  <TableHead className="w-32 text-right text-slate-600">
+                    Actions
+                  </TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <TableBody className="text-slate-800">
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={5}
+                      className="text-center text-slate-500"
+                    >
                       No users match your search
                     </TableCell>
                   </TableRow>
@@ -948,12 +966,14 @@ export default function AdminPanel() {
                         <TableRow
                           data-testid={`user-row-${u.username}`}
                           className="cursor-pointer"
-                          onClick={() => setExpandedUserId(isExpanded ? null : u.id)}
+                          onClick={() =>
+                            setExpandedUserId(isExpanded ? null : u.id)
+                          }
                         >
                           <TableCell className="font-medium">
                             <div className="flex flex-col">
                               <span>{u.username}</span>
-                              <span className="text-[11px] text-muted-foreground font-mono truncate max-w-[220px]">
+                              <span className="text-[11px] text-slate-500 font-mono truncate max-w-[220px]">
                                 {u.id}
                               </span>
                             </div>
@@ -963,15 +983,20 @@ export default function AdminPanel() {
                             ₹{parseFloat(u.balance).toLocaleString()}
                           </TableCell>
 
-                          <TableCell className="font-mono text-rose-300 whitespace-nowrap">
+                          <TableCell className="font-mono text-rose-700 whitespace-nowrap">
                             {parseFloat(u.exposure || "0") > 0
                               ? `- ₹${parseFloat(u.exposure).toLocaleString()}`
                               : "-"}
                           </TableCell>
 
                           <TableCell className="font-mono text-sm whitespace-nowrap">
-                            <span className="text-emerald-300">{u.wonBets || 0}W</span>{" "}
-                            / <span className="text-rose-300">{u.lostBets || 0}L</span>
+                            <span className="text-emerald-700">
+                              {u.wonBets || 0}W
+                            </span>{" "}
+                            /{" "}
+                            <span className="text-rose-700">
+                              {u.lostBets || 0}L
+                            </span>
                           </TableCell>
 
                           <TableCell className="text-right">
@@ -979,7 +1004,7 @@ export default function AdminPanel() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0 rounded-xl hover:bg-white/5"
+                                className="h-8 w-8 p-0 rounded-xl hover:bg-slate-100"
                                 data-testid={`view-activity-${u.username}`}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -992,7 +1017,7 @@ export default function AdminPanel() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0 rounded-xl hover:bg-white/5 text-amber-200"
+                                className="h-8 w-8 p-0 rounded-xl hover:bg-slate-100 text-amber-700"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setResetTargetId(u.id);
@@ -1004,7 +1029,7 @@ export default function AdminPanel() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0 rounded-xl hover:bg-white/5 text-rose-300"
+                                className="h-8 w-8 p-0 rounded-xl hover:bg-slate-100 text-rose-700"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setDeleteTargetId(u.id);
@@ -1019,23 +1044,30 @@ export default function AdminPanel() {
 
                         {isExpanded ? (
                           <TableRow>
-                            <TableCell colSpan={5} className="bg-white/[0.02]">
+                            <TableCell colSpan={5} className="bg-slate-50">
                               <div className="py-2">
                                 <div className="flex items-center justify-between gap-4">
-                                  <div className="text-xs text-muted-foreground">
-                                    Recent bets (inline) — tap “eye” for full history
+                                  <div className="text-xs text-slate-600">
+                                    Recent bets (inline) — tap “eye” for full
+                                    history
                                   </div>
-                                  <div className="text-xs text-muted-foreground">
+                                  <div className="text-xs text-slate-600">
                                     {recent.length ? (
-                                      <StatusDot tone="emerald" label="Has activity" />
+                                      <StatusDot
+                                        tone="emerald"
+                                        label="Has activity"
+                                      />
                                     ) : (
-                                      <StatusDot tone="slate" label="No bets yet" />
+                                      <StatusDot
+                                        tone="slate"
+                                        label="No bets yet"
+                                      />
                                     )}
                                   </div>
                                 </div>
 
                                 {recent.length === 0 ? (
-                                  <div className="mt-2 text-sm text-muted-foreground">
+                                  <div className="mt-2 text-sm text-slate-600">
                                     No recent bets found for this user.
                                   </div>
                                 ) : (
@@ -1043,7 +1075,7 @@ export default function AdminPanel() {
                                     {recent.slice(0, 4).map((b: any) => (
                                       <div
                                         key={b.id}
-                                        className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 flex items-center justify-between"
+                                        className="rounded-2xl border border-slate-200 bg-white px-3 py-2 flex items-center justify-between"
                                       >
                                         <div className="min-w-0">
                                           <div className="flex items-center gap-2">
@@ -1051,27 +1083,33 @@ export default function AdminPanel() {
                                               className={cn(
                                                 "text-[10px] font-bold px-2 py-0.5 rounded-full border",
                                                 b.type === "BACK"
-                                                  ? "bg-sky-500/15 text-sky-200 border-sky-400/25"
-                                                  : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/25"
+                                                  ? "bg-sky-50 text-sky-700 border-sky-200"
+                                                  : "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200"
                                               )}
                                             >
                                               {b.type}
                                             </span>
-                                            <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+                                            <span className="text-xs text-slate-600 truncate max-w-[180px]">
                                               {b.marketName || "Market"}
                                             </span>
                                           </div>
-                                          <div className="mt-1 flex items-center gap-3 text-xs">
+                                          <div className="mt-1 flex items-center gap-3 text-xs text-slate-700">
                                             <span className="font-mono">
-                                              Odds: {parseFloat(b.odds).toFixed(2)}
+                                              Odds:{" "}
+                                              {parseFloat(b.odds).toFixed(2)}
                                             </span>
                                             <span className="font-mono">
-                                              Stake: ₹{parseFloat(b.stake).toFixed(2)}
+                                              Stake: ₹
+                                              {parseFloat(
+                                                b.stake
+                                              ).toFixed(2)}
                                             </span>
                                           </div>
                                         </div>
-                                        <div className="text-xs text-muted-foreground font-mono">
-                                          {new Date(b.createdAt).toLocaleTimeString()}
+                                        <div className="text-xs text-slate-500 font-mono">
+                                          {new Date(
+                                            b.createdAt
+                                          ).toLocaleTimeString()}
                                         </div>
                                       </div>
                                     ))}
@@ -1091,38 +1129,46 @@ export default function AdminPanel() {
         </Card>
 
         {/* RECENT BETS */}
-        <Card className="mt-6 bg-white/[0.03] border-white/10 rounded-2xl">
+        <Card className="mt-6 bg-white border border-slate-200 rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle>Recent Bets</CardTitle>
-            <CardDescription>Latest 20 bets across your network.</CardDescription>
+            <CardDescription>
+              Latest 20 bets across your network.
+            </CardDescription>
           </CardHeader>
 
-          <CardContent className="overflow-x-auto">
+          <CardContent className="overflow-x-auto text-slate-900 text-sm">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>Market</TableHead>
-                  <TableHead>Odds</TableHead>
-                  <TableHead>Stake</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="text-slate-600">Time</TableHead>
+                  <TableHead className="text-slate-600">Type</TableHead>
+                  <TableHead className="text-slate-600">User</TableHead>
+                  <TableHead className="text-slate-600">Market</TableHead>
+                  <TableHead className="text-slate-600">Odds</TableHead>
+                  <TableHead className="text-slate-600">Stake</TableHead>
+                  <TableHead className="text-slate-600">Status</TableHead>
                 </TableRow>
               </TableHeader>
 
-              <TableBody>
+              <TableBody className="text-slate-800">
                 {bets.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={6}
+                      className="text-center text-slate-500"
+                    >
                       No bets placed yet
                     </TableCell>
                   </TableRow>
                 ) : (
                   bets.slice(0, 20).map((bet: any) => {
                     return (
-                      <TableRow key={bet.id} data-testid={`bet-row-${bet.id}`}>
-                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      <TableRow
+                        key={bet.id}
+                        data-testid={`bet-row-${bet.id}`}
+                      >
+                        <TableCell className="text-xs text-slate-600 whitespace-nowrap">
                           {new Date(bet.createdAt).toLocaleTimeString()}
                         </TableCell>
 
@@ -1131,19 +1177,22 @@ export default function AdminPanel() {
                             className={cn(
                               "text-xs font-bold px-2 py-1 rounded-full border",
                               bet.type === "BACK"
-                                ? "bg-sky-500/15 text-sky-200 border-sky-400/25"
-                                : "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/25"
+                                ? "bg-sky-50 text-sky-700 border-sky-200"
+                                : "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200"
                             )}
                           >
                             {bet.type}
                           </span>
                         </TableCell>
 
-                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap max-w-[180px] truncate">
-                          {bet.userId || bet.user_id || bet.user?.id || "User"}
+                        <TableCell className="text-xs text-slate-700 whitespace-nowrap max-w-[180px] truncate">
+                          {bet.userId ||
+                            bet.user_id ||
+                            bet.user?.id ||
+                            "User"}
                         </TableCell>
 
-                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                        <TableCell className="text-xs text-slate-700 max-w-[200px] truncate">
                           {bet.marketName || bet.market || "Market"}
                         </TableCell>
 
@@ -1160,10 +1209,10 @@ export default function AdminPanel() {
                             className={cn(
                               "text-xs px-2 py-1 rounded-full border",
                               bet.status === "WON"
-                                ? "bg-emerald-500/10 text-emerald-200 border-emerald-400/25"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                 : bet.status === "LOST"
-                                ? "bg-rose-500/10 text-rose-200 border-rose-400/25"
-                                : "bg-amber-500/10 text-amber-200 border-amber-400/25"
+                                ? "bg-rose-50 text-rose-700 border-rose-200"
+                                : "bg-amber-50 text-amber-700 border-amber-200"
                             )}
                           >
                             {bet.status}
@@ -1180,20 +1229,24 @@ export default function AdminPanel() {
 
         {/* USER ACTIVITY DIALOG */}
         <Dialog open={activityDialogOpen} onOpenChange={setActivityDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden bg-[#0B0F1A] border-white/10">
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden bg-white border border-slate-200 rounded-2xl text-slate-900">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Activity className="h-5 w-5" />
                 User Activity History
               </DialogTitle>
               <DialogDescription>
-                {clientUsers.find((u) => u.id === selectedActivityUserId)?.username}
+                {
+                  clientUsers.find(
+                    (u) => u.id === selectedActivityUserId
+                  )?.username
+                }
                 's betting and casino history
               </DialogDescription>
             </DialogHeader>
 
             {activityLoading ? (
-              <div className="py-8 text-center text-muted-foreground">
+              <div className="py-8 text-center text-slate-500">
                 Loading activity...
               </div>
             ) : activityData ? (
@@ -1201,57 +1254,59 @@ export default function AdminPanel() {
                 <div className="space-y-6 pr-4">
                   {/* Summary Stats */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-white/[0.03] rounded-2xl p-3 border border-white/10">
-                      <div className="text-xs text-muted-foreground mb-1">
+                    <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200">
+                      <div className="text-xs text-slate-600 mb-1">
                         Sports Bets
                       </div>
                       <div className="text-lg font-bold">
                         {activityData.summary.totalBets}
                       </div>
                       <div className="text-xs mt-1">
-                        <span className="text-emerald-300">
+                        <span className="text-emerald-700">
                           {activityData.summary.betsWon}W
                         </span>
                         {" / "}
-                        <span className="text-rose-300">
+                        <span className="text-rose-700">
                           {activityData.summary.betsLost}L
                         </span>
                       </div>
                     </div>
 
-                    <div className="bg-white/[0.03] rounded-2xl p-3 border border-white/10">
-                      <div className="text-xs text-muted-foreground mb-1">
+                    <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200">
+                      <div className="text-xs text-slate-600 mb-1">
                         Total Staked
                       </div>
                       <div className="text-lg font-bold font-mono">
-                        ₹{activityData.summary.totalBetAmount.toLocaleString()}
+                        ₹
+                        {activityData.summary.totalBetAmount.toLocaleString()}
                       </div>
                     </div>
 
-                    <div className="bg-white/[0.03] rounded-2xl p-3 border border-white/10">
-                      <div className="text-xs text-muted-foreground mb-1">
+                    <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200">
+                      <div className="text-xs text-slate-600 mb-1">
                         Casino Bets
                       </div>
                       <div className="text-lg font-bold">
                         {activityData.summary.totalCasinoBets}
                       </div>
                       <div className="text-xs mt-1">
-                        <span className="text-emerald-300">
+                        <span className="text-emerald-700">
                           {activityData.summary.casinoWon}W
                         </span>
                         {" / "}
-                        <span className="text-rose-300">
+                        <span className="text-rose-700">
                           {activityData.summary.casinoLost}L
                         </span>
                       </div>
                     </div>
 
-                    <div className="bg-white/[0.03] rounded-2xl p-3 border border-white/10">
-                      <div className="text-xs text-muted-foreground mb-1">
+                    <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200">
+                      <div className="text-xs text-slate-600 mb-1">
                         Casino Wagered
                       </div>
                       <div className="text-lg font-bold font-mono">
-                        ₹{activityData.summary.totalCasinoWagered.toLocaleString()}
+                        ₹
+                        {activityData.summary.totalCasinoWagered.toLocaleString()}
                       </div>
                     </div>
                   </div>
@@ -1259,13 +1314,13 @@ export default function AdminPanel() {
                   {/* Recent Sports Bets */}
                   <div>
                     <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-sky-300" />
+                      <TrendingUp className="h-4 w-4 text-sky-500" />
                       Recent Sports Bets
                     </h4>
 
                     {activityData.bets.length === 0 &&
                     activityData.instanceBets.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-slate-600">
                         No sports bets placed
                       </p>
                     ) : (
@@ -1280,38 +1335,38 @@ export default function AdminPanel() {
                           .map((bet: any, idx: number) => (
                             <div
                               key={bet.id || idx}
-                              className="flex items-center justify-between text-sm py-2 px-3 rounded-2xl bg-white/[0.03] border border-white/10"
+                              className="flex items-center justify-between text-sm py-2 px-3 rounded-2xl bg-white border border-slate-200"
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <span
                                   className={cn(
                                     "text-[10px] font-bold px-2 py-0.5 rounded-full border",
                                     bet.type === "BACK"
-                                      ? "bg-sky-500/15 text-sky-200 border-sky-400/25"
+                                      ? "bg-sky-50 text-sky-700 border-sky-200"
                                       : bet.type === "LAY"
-                                      ? "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/25"
-                                      : "bg-violet-500/15 text-violet-200 border-violet-400/25"
+                                      ? "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200"
+                                      : "bg-violet-50 text-violet-700 border-violet-200"
                                   )}
                                 >
                                   {bet.type || bet.marketType || "BET"}
                                 </span>
-                                <span className="text-muted-foreground text-xs truncate max-w-40">
+                                <span className="text-slate-600 text-xs truncate max-w-40">
                                   {bet.marketName || "Match Bet"}
                                 </span>
                               </div>
 
                               <div className="flex items-center gap-3">
-                                <span className="font-mono text-xs">
+                                <span className="font-mono text-xs text-slate-800">
                                   ₹{(bet.stake ?? 0).toLocaleString()}
                                 </span>
                                 <span
                                   className={cn(
                                     "text-xs px-2 py-1 rounded-full border",
                                     bet.status === "WON"
-                                      ? "bg-emerald-500/10 text-emerald-200 border-emerald-400/25"
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                                       : bet.status === "LOST"
-                                      ? "bg-rose-500/10 text-rose-200 border-rose-400/25"
-                                      : "bg-amber-500/10 text-amber-200 border-amber-400/25"
+                                      ? "bg-rose-50 text-rose-700 border-rose-200"
+                                      : "bg-amber-50 text-amber-700 border-amber-200"
                                   )}
                                 >
                                   {bet.status}
@@ -1326,12 +1381,12 @@ export default function AdminPanel() {
                   {/* Casino History */}
                   <div>
                     <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
-                      <TrendingDown className="h-4 w-4 text-violet-300" />
+                      <TrendingDown className="h-4 w-4 text-violet-500" />
                       Recent Casino Plays
                     </h4>
 
                     {activityData.casinoBets.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-slate-600">
                         No casino games played
                       </p>
                     ) : (
@@ -1341,27 +1396,27 @@ export default function AdminPanel() {
                           .map((bet: any, idx: number) => (
                             <div
                               key={bet.id || idx}
-                              className="flex items-center justify-between text-sm py-2 px-3 rounded-2xl bg-white/[0.03] border border-white/10"
+                              className="flex items-center justify-between text-sm py-2 px-3 rounded-2xl bg-white border border-slate-200"
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-violet-500/15 text-violet-200 border-violet-400/25">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-violet-50 text-violet-700 border-violet-200">
                                   CASINO
                                 </span>
-                                <span className="text-muted-foreground text-xs truncate max-w-40">
+                                <span className="text-slate-600 text-xs truncate max-w-40">
                                   {bet.betChoice || "Game"}
                                 </span>
                               </div>
 
                               <div className="flex items-center gap-3">
-                                <span className="font-mono text-xs">
+                                <span className="font-mono text-xs text-slate-800">
                                   ₹{(bet.betAmount ?? 0).toLocaleString()}
                                 </span>
                                 <span
                                   className={cn(
                                     "text-xs px-2 py-1 rounded-full border",
                                     bet.isWin
-                                      ? "bg-emerald-500/10 text-emerald-200 border-emerald-400/25"
-                                      : "bg-rose-500/10 text-rose-200 border-rose-400/25"
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                      : "bg-rose-50 text-rose-700 border-rose-200"
                                   )}
                                 >
                                   {bet.isWin ? "WON" : "LOST"}
@@ -1376,12 +1431,12 @@ export default function AdminPanel() {
                   {/* Transaction History */}
                   <div>
                     <h4 className="font-medium text-sm mb-2 flex items-center gap-2">
-                      <ArrowRightLeft className="h-4 w-4 text-emerald-300" />
+                      <ArrowRightLeft className="h-4 w-4 text-emerald-500" />
                       Recent Transactions
                     </h4>
 
                     {activityData.transactions.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-slate-600">
                         No transactions
                       </p>
                     ) : (
@@ -1391,20 +1446,20 @@ export default function AdminPanel() {
                           .map((tx: any, idx: number) => (
                             <div
                               key={tx.id || idx}
-                              className="flex items-center justify-between text-sm py-2 px-3 rounded-2xl bg-white/[0.03] border border-white/10"
+                              className="flex items-center justify-between text-sm py-2 px-3 rounded-2xl bg-white border border-slate-200"
                             >
                               <div className="flex items-center gap-2 min-w-0">
                                 <span
                                   className={cn(
                                     "text-[10px] font-bold px-2 py-0.5 rounded-full border",
                                     tx.type === "CREDIT"
-                                      ? "bg-emerald-500/15 text-emerald-200 border-emerald-400/25"
-                                      : "bg-rose-500/15 text-rose-200 border-rose-400/25"
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                      : "bg-rose-50 text-rose-700 border-rose-200"
                                   )}
                                 >
                                   {tx.type}
                                 </span>
-                                <span className="text-muted-foreground text-xs truncate max-w-48">
+                                <span className="text-slate-600 text-xs truncate max-w-48">
                                   {tx.description}
                                 </span>
                               </div>
@@ -1413,8 +1468,8 @@ export default function AdminPanel() {
                                 className={cn(
                                   "font-mono text-xs",
                                   tx.type === "CREDIT"
-                                    ? "text-emerald-200"
-                                    : "text-rose-200"
+                                    ? "text-emerald-700"
+                                    : "text-rose-700"
                                 )}
                               >
                                 {tx.type === "CREDIT" ? "+" : "-"}₹
@@ -1428,7 +1483,7 @@ export default function AdminPanel() {
                 </div>
               </ScrollArea>
             ) : (
-              <div className="py-8 text-center text-muted-foreground">
+              <div className="py-8 text-center text-slate-500">
                 No activity data
               </div>
             )}

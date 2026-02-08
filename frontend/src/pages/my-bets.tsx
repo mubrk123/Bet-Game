@@ -103,7 +103,12 @@ function StatPills({
           <div className="text-[10px] text-[#475569] leading-none font-semibold">
             {it.label}
           </div>
-          <div className={cn("mt-1 text-sm font-semibold font-mono text-[#0F172A]", it.valueClassName)}>
+          <div
+            className={cn(
+              "mt-1 text-sm font-semibold font-mono text-[#0F172A]",
+              it.valueClassName
+            )}
+          >
             {it.value}
           </div>
         </div>
@@ -115,6 +120,7 @@ function StatPills({
 function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
   const type = String(bet?.type ?? bet?.bet_type ?? "BACK").toUpperCase();
   const status = String(bet?.status ?? bet?.bet_status ?? "").toUpperCase();
+  const category = String(bet?.bet_category ?? "").toUpperCase(); // PRE_MATCH / INSTANCE etc.
 
   const odds = parseNum(bet?.odds);
   const stake = parseNum(bet?.stake);
@@ -136,10 +142,10 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
     profit !== 0
       ? profit
       : isWon
-        ? potentialProfit
-        : isLost
-          ? -(isLay ? liability : stake)
-          : 0;
+      ? potentialProfit
+      : isLost
+      ? -(isLay ? liability : stake)
+      : 0;
 
   const matchName =
     bet?.matchName ||
@@ -149,7 +155,8 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
     bet?.market?.matchName ||
     "Match";
 
-  const marketName =
+  // Base market name from various sources
+  const rawMarketName =
     bet?.marketName ||
     bet?.market?.name ||
     bet?.instanceMarketName ||
@@ -157,6 +164,33 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
     bet?.market_name ||
     bet?.bet_category ||
     "Market";
+
+  // Try to derive over + ball, e.g. 17.4
+  const overN = parseNum(
+    bet?.over ??
+      bet?.over_number ??
+      bet?.ball_over ??
+      bet?.ro_over_number
+  );
+  const ballN = parseNum(
+    bet?.ball ??
+      bet?.ball_number ??
+      bet?.ball_in_over ??
+      bet?.ro_ball_number
+  );
+
+  const overBallLabel =
+    overN > 0 || ballN > 0
+      ? `${overN}.${ballN}`
+      : bet?.over_ball_label ||
+        bet?.ball_over_label ||
+        bet?.ro_ball_over_label ||
+        "";
+
+  // If bet is INSTANCE, show over.ball instead of just "Instance"
+  const isInstance = category === "INSTANCE";
+  const marketName =
+    isInstance && overBallLabel ? overBallLabel : rawMarketName;
 
   const selectionName =
     bet?.selectionName ||
@@ -185,14 +219,14 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
   const createdAt = bet?.createdAt
     ? new Date(bet.createdAt)
     : bet?.created_at
-      ? new Date(bet.created_at)
-      : null;
+    ? new Date(bet.created_at)
+    : null;
 
   const settledAt = bet?.settledAt
     ? new Date(bet.settledAt)
     : bet?.settled_at
-      ? new Date(bet.settled_at)
-      : null;
+    ? new Date(bet.settled_at)
+    : null;
 
   const timeText = createdAt ? format(createdAt, "MMM dd, HH:mm") : "";
   const settledText = settledAt ? format(settledAt, "MMM dd, HH:mm") : "";
@@ -225,11 +259,11 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
             ? isWon
               ? "bg-emerald-500/60"
               : isLost
-                ? "bg-red-500/60"
-                : "bg-[#CBD5E1]"
+              ? "bg-red-500/60"
+              : "bg-[#CBD5E1]"
             : isBack
-              ? "bg-[#0EA5E9]"
-              : "bg-[#EF4444]"
+            ? "bg-[#0EA5E9]"
+            : "bg-[#EF4444]"
         )}
       />
 
@@ -238,7 +272,10 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <h3 className="text-[15px] font-bold text-[#0F172A] truncate" title={matchName}>
+              <h3
+                className="text-[15px] font-bold text-[#0F172A] truncate"
+                title={matchName}
+              >
                 {matchName}
               </h3>
               <SmallBadge variant={variant === "OPEN" ? "info" : "default"}>
@@ -257,7 +294,9 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
 
             {variant === "SETTLED" && (
               <div className="mt-1 flex items-center gap-2 min-w-0">
-                <span className="text-[10px] text-muted-foreground">Outcome:</span>
+                <span className="text-[10px] text-muted-foreground">
+                  Outcome:
+                </span>
                 <span className="text-[11px] font-semibold truncate">
                   {actualOutcome ? String(actualOutcome) : "—"}
                 </span>
@@ -277,7 +316,9 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
             >
               {betTypeLabel} @ {odds.toFixed(2)}
             </span>
-            <SmallBadge variant={statusInfo.variant}>{statusInfo.label}</SmallBadge>
+            <SmallBadge variant={statusInfo.variant}>
+              {statusInfo.label}
+            </SmallBadge>
           </div>
         </div>
 
@@ -303,10 +344,15 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
               ]}
             />
             <div className="mt-3 flex items-center justify-between border-t border-[#E2E8F0] pt-2">
-              <span className="text-[11px] text-[#475569] font-medium">{timeText}</span>
+              <span className="text-[11px] text-[#475569] font-medium">
+                {timeText}
+              </span>
               <span className="text-[11px] text-[#475569]">
                 {/* show exactly what user chose */}
-                Selected: <span className="font-semibold text-[#0F172A]">{selectionName}</span>
+                Selected:{" "}
+                <span className="font-semibold text-[#0F172A]">
+                  {selectionName}
+                </span>
               </span>
             </div>
           </div>
@@ -318,7 +364,9 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
                 <div className="text-[10px] text-[#475569] leading-none font-semibold">
                   You Picked
                 </div>
-                <div className="mt-1 text-xs font-semibold truncate text-[#0F172A]">{selectionName}</div>
+                <div className="mt-1 text-xs font-semibold truncate text-[#0F172A]">
+                  {selectionName}
+                </div>
               </div>
 
               <div className="rounded-full border border-[#E5E0D6] bg-white px-3 py-2 shadow-sm">
@@ -331,15 +379,17 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
               </div>
 
               <div className="rounded-full border border-[#E5E0D6] bg-white px-3 py-2 shadow-sm">
-                <div className="text-[10px] text-[#475569] leading-none font-semibold">P/L</div>
+                <div className="text-[10px] text-[#475569] leading-none font-semibold">
+                  P/L
+                </div>
                 <div
                   className={cn(
                     "mt-1 text-xs font-semibold font-mono",
                     pnl > 0
                       ? "text-[#0B8A5F]"
                       : pnl < 0
-                        ? "text-[#D92148]"
-                        : "text-[#475569]"
+                      ? "text-[#D92148]"
+                      : "text-[#475569]"
                   )}
                 >
                   {pnl > 0 ? "+" : ""}
@@ -357,7 +407,10 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
                 {commission > 0 && (
                   <>
                     {" "}
-                    • Comm <span className="font-mono">-{formatINR(commission)}</span>
+                    • Comm{" "}
+                    <span className="font-mono">
+                      -{formatINR(commission)}
+                    </span>
                   </>
                 )}
               </span>
@@ -383,26 +436,36 @@ function CompactStatsBarPills({
     const totalPotential = openBets.reduce((acc, b) => {
       const stake = parseNum(b?.stake);
       const odds = parseNum(b?.odds);
-      const isBack = String(b?.type ?? b?.bet_type).toUpperCase() === "BACK";
+      const isBack =
+        String(b?.type ?? b?.bet_type).toUpperCase() === "BACK";
       return acc + (isBack ? stake * odds : stake);
     }, 0);
     return { totalStake, totalPotential };
   }, [openBets]);
 
   const settledStats = useMemo(() => {
-    const totalWagered = settledBets.reduce((acc, b) => acc + parseNum(b?.stake), 0);
+    const totalWagered = settledBets.reduce(
+      (acc, b) => acc + parseNum(b?.stake),
+      0
+    );
 
     const totalPnl = settledBets.reduce((acc, b) => {
       const profit = parseNum(b?.profit);
       if (profit !== 0) return acc + profit;
 
-      const status = String(b?.status ?? b?.bet_status).toUpperCase();
+      const status = String(
+        b?.status ?? b?.bet_status
+      ).toUpperCase();
       const stake = parseNum(b?.stake);
       const odds = parseNum(b?.odds);
-      const isBack = String(b?.type ?? b?.bet_type).toUpperCase() === "BACK";
-      const isLay = String(b?.type ?? b?.bet_type).toUpperCase() === "LAY";
+      const isBack =
+        String(b?.type ?? b?.bet_type).toUpperCase() === "BACK";
+      const isLay =
+        String(b?.type ?? b?.bet_type).toUpperCase() === "LAY";
       const liability = isLay ? stake * Math.max(0, odds - 1) : 0;
-      const potentialProfit = isBack ? stake * Math.max(0, odds - 1) : stake;
+      const potentialProfit = isBack
+        ? stake * Math.max(0, odds - 1)
+        : stake;
 
       if (status === "WON") return acc + potentialProfit;
       if (status === "LOST") return acc - (isLay ? liability : stake);
@@ -410,9 +473,13 @@ function CompactStatsBarPills({
     }, 0);
 
     const wonBets = settledBets.filter(
-      (b) => String(b?.status ?? b?.bet_status).toUpperCase() === "WON"
+      (b) =>
+        String(b?.status ?? b?.bet_status).toUpperCase() === "WON"
     ).length;
-    const winRate = settledBets.length > 0 ? (wonBets / settledBets.length) * 100 : 0;
+    const winRate =
+      settledBets.length > 0
+        ? (wonBets / settledBets.length) * 100
+        : 0;
 
     return { totalWagered, totalPnl, winRate };
   }, [settledBets]);
@@ -432,7 +499,9 @@ function CompactStatsBarPills({
           },
           {
             label: "Risk / Reward",
-            value: formatINR(openStats.totalPotential - openStats.totalStake),
+            value: formatINR(
+              openStats.totalPotential - openStats.totalStake
+            ),
             valueClassName: "text-[#B45309]",
           },
         ]
@@ -444,13 +513,15 @@ function CompactStatsBarPills({
           },
           {
             label: "Net P/L",
-            value: `${settledStats.totalPnl > 0 ? "+" : ""}${formatINR(settledStats.totalPnl)}`,
+            value: `${
+              settledStats.totalPnl > 0 ? "+" : ""
+            }${formatINR(settledStats.totalPnl)}`,
             valueClassName:
               settledStats.totalPnl > 0
                 ? "text-[#0B8A5F]"
                 : settledStats.totalPnl < 0
-                  ? "text-[#D92148]"
-                  : "text-[#0F172A]",
+                ? "text-[#D92148]"
+                : "text-[#0F172A]",
           },
           {
             label: "Win Rate",
@@ -485,7 +556,9 @@ export default function MyBets() {
   if (isError) {
     const msg =
       (error as any)?.message ||
-      (typeof error === "string" ? error : "Failed to load bets");
+      (typeof error === "string"
+        ? error
+        : "Failed to load bets");
 
     const isAuth = msg.toLowerCase().includes("not authenticated");
 
@@ -504,12 +577,14 @@ export default function MyBets() {
 
             {isAuth && (
               <div className="mt-3 text-xs text-[#991B1B]/80">
-                You’re not logged in on this page. Login first, then come back.
+                You’re not logged in on this page. Login first, then
+                come back.
               </div>
             )}
 
             <div className="mt-3 text-xs text-[#475569]">
-              If this says “permission denied”, you need a Supabase RLS SELECT policy on{" "}
+              If this says “permission denied”, you need a Supabase
+              RLS SELECT policy on{" "}
               <span className="font-mono">bets</span> for{" "}
               <span className="font-mono">user_id = auth.uid()</span>.
             </div>
@@ -538,22 +613,41 @@ export default function MyBets() {
     const settled: any[] = [];
 
     for (const b of bets) {
-      const s = String(b?.status ?? b?.bet_status ?? "").toUpperCase();
-      if (s === "OPEN" || s === "PENDING" || s === "LIVE") open.push(b);
+      const s = String(
+        b?.status ?? b?.bet_status ?? ""
+      ).toUpperCase();
+      if (s === "OPEN" || s === "PENDING" || s === "LIVE")
+        open.push(b);
       else settled.push(b);
     }
 
     open.sort(
       (a, b) =>
-        new Date(b.createdAt || b.created_at || 0).getTime() -
-        new Date(a.createdAt || a.created_at || 0).getTime()
+        new Date(a.createdAt || a.created_at || 0).getTime() -
+        new Date(b.createdAt || b.created_at || 0).getTime()
     );
 
     settled.sort(
       (a, b) =>
-        new Date(b.settledAt || b.settled_at || b.createdAt || b.created_at || 0).getTime() -
-        new Date(a.settledAt || a.settled_at || a.createdAt || a.created_at || 0).getTime()
+        new Date(
+          a.settledAt ||
+            a.settled_at ||
+            a.createdAt ||
+            a.created_at ||
+            0
+        ).getTime() -
+        new Date(
+          b.settledAt ||
+            b.settled_at ||
+            b.createdAt ||
+            b.created_at ||
+            0
+        ).getTime()
     );
+
+    // reverse so newest first (like your original)
+    open.reverse();
+    settled.reverse();
 
     return { openBets: open, settledBets: settled };
   }, [bets]);
@@ -578,7 +672,9 @@ export default function MyBets() {
         {isLoading ? (
           <div className="text-center py-6 bg-white border border-[#E2E8F0] rounded-2xl shadow-sm">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0B8A5F] mx-auto mb-2" />
-            <div className="text-sm text-[#475569] font-semibold">Loading your bets...</div>
+            <div className="text-sm text-[#475569] font-semibold">
+              Loading your bets...
+            </div>
           </div>
         ) : showing.length === 0 ? (
           <div className="text-center py-6 border border-dashed border-[#D7DDE5] rounded-2xl bg-white shadow-sm">
@@ -595,7 +691,9 @@ export default function MyBets() {
           <div className="space-y-3">
             {showing.map((bet: any) => (
               <BetCard
-                key={`${bet.id}-${bet.createdAt || bet.created_at}-${bet.status || bet.bet_status}`}
+                key={`${bet.id}-${
+                  bet.createdAt || bet.created_at
+                }-${bet.status || bet.bet_status}`}
                 bet={bet}
                 variant={tab}
               />

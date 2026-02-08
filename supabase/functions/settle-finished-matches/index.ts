@@ -89,10 +89,65 @@ async function settleMatchWinner(match: any) {
   return { settled, outcome };
 }
 
-function pickWinner(_match: any, _runners: any[]) {
-  // Without legacy score_home/score_away, auto-settlement is undefined.
-  // Return VOID so markets stay neutral until a dedicated Roanuz result flow is added.
-  return { winningRunnerId: null, winnerName: null, outcome: "VOID" };
+function pickWinner(match: any, runners: any[]) {
+  const norm = (s: any) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+
+  const homeKey = norm(match.ro_team_home_key || match.homeTeamKey);
+  const awayKey = norm(match.ro_team_away_key || match.awayTeamKey);
+  const homeName = match.ro_team_home_name || match.homeTeam || match.team_home || null;
+  const awayName = match.ro_team_away_name || match.awayTeam || match.team_away || null;
+
+  const innings: any[] = Array.isArray(match.ro_innings_summary) ? match.ro_innings_summary : [];
+
+  const scoreToRuns = (score: any) => {
+    const n = Number(score);
+    if (Number.isFinite(n)) return n;
+    const m = String(score || "").match(/(\d+)/);
+    return m?.[1] ? Number(m[1]) : null;
+  };
+
+  let homeRuns: number | null = null;
+  let awayRuns: number | null = null;
+
+  for (const inn of innings) {
+    const teamKey = norm(inn.team_key || inn.team || inn.batting_team);
+    const runs = scoreToRuns(
+      inn.score?.runs ?? inn.runs ?? inn.total ?? inn.score_details,
+    );
+    if (!Number.isFinite(runs)) continue;
+    if (teamKey && homeKey && teamKey === homeKey) homeRuns = runs;
+    else if (teamKey && awayKey && teamKey === awayKey) awayRuns = runs;
+    else if (teamKey === "a" && homeRuns == null) homeRuns = runs;
+    else if (teamKey === "b" && awayRuns == null) awayRuns = runs;
+  }
+
+  // If innings summary missing, fallback to stored target as first-innings score
+  if (homeRuns == null && awayRuns == null && Number.isFinite(match.ro_target_runs)) {
+    if (norm(match.ro_batting_team_key) === awayKey) homeRuns = Number(match.ro_target_runs);
+    else if (norm(match.ro_batting_team_key) === homeKey) awayRuns = Number(match.ro_target_runs);
+  }
+
+  if (homeRuns == null || awayRuns == null) return { winningRunnerId: null, winnerName: null, outcome: "VOID" };
+
+  let winnerName: string | null = null;
+  if (homeRuns > awayRuns) winnerName = homeName;
+  else if (awayRuns > homeRuns) winnerName = awayName;
+  else return { winningRunnerId: null, winnerName: null, outcome: "VOID" }; // tie/NR
+
+  const winningRunner =
+    runners.find((r) => norm(r.name) === norm(winnerName)) ||
+    runners.find((r) => norm(r.runner_name) === norm(winnerName)) ||
+    runners.find((r) => norm(r.ro_team_key) === norm(winnerName)) ||
+    null;
+
+  return {
+    winningRunnerId: winningRunner?.id || null,
+    winnerName,
+    outcome: winningRunner ? "WIN" : "VOID",
+  };
 }
 
 function isSameTeam(runnerName: string, teamName: string) {
@@ -110,19 +165,19 @@ async function settleMarketBets(
     .from("bets")
     .select("*")
     .eq("market_id", marketId)
-    .eq("status", "OPEN");
+    .eq("bet_status", "OPEN");
 
   if (error || !openBets?.length) return 0;
 
   let count = 0;
   for (const bet of openBets) {
     const requiredAmount =
-      bet.type === "BACK" ? Number(bet.stake) : Number(bet.liability);
+      bet.bet_type === "BACK" ? Number(bet.stake) : Number(bet.liability);
 
     const isWin =
       bet.runner_id === winningRunnerId
-        ? bet.type === "BACK"
-        : bet.type === "LAY";
+        ? bet.bet_type === "BACK"
+        : bet.bet_type === "LAY";
 
     // ✅ CLAIM FIRST: only one process can settle this bet
     const newStatus = isWin ? "WON" : "LOST";
@@ -130,12 +185,12 @@ async function settleMarketBets(
     const { data: claimed, error: claimErr } = await supabase
       .from("bets")
       .update({
-        status: newStatus,
-        winning_runner: winnerName || bet.runner_name || "WINNER",
+        bet_status: newStatus,
+        winning_outcome: winnerName || bet.runner_name || "WINNER",
         settled_at: new Date().toISOString(),
       })
       .eq("id", bet.id)
-      .eq("status", "OPEN")
+      .eq("bet_status", "OPEN")
       .select("id")
       .maybeSingle();
 
@@ -149,9 +204,8 @@ async function settleMarketBets(
     const exposureAfter = Math.max(0, exposureBefore - requiredAmount);
 
     if (isWin) {
-      const payout = Number(
-        (Number(bet.stake) + Number(bet.potential_profit)).toFixed(2)
-      );
+      const profit = Number(bet.potential_payout ?? 0);
+      const payout = Number((Number(bet.stake) + profit).toFixed(2));
       balanceAfter = Number((balanceBefore + payout).toFixed(2));
 
       await supabase
@@ -199,24 +253,24 @@ async function voidMarketBets(marketId: string) {
     .from("bets")
     .select("*")
     .eq("market_id", marketId)
-    .eq("status", "OPEN");
+    .eq("bet_status", "OPEN");
 
   if (error || !openBets?.length) return 0;
 
   let count = 0;
   for (const bet of openBets) {
     const requiredAmount =
-      bet.type === "BACK" ? Number(bet.stake) : Number(bet.liability);
+      bet.bet_type === "BACK" ? Number(bet.stake) : Number(bet.liability);
 
     // ✅ CLAIM FIRST: only one process can void this bet
     const { data: claimed, error: claimErr } = await supabase
       .from("bets")
       .update({
-        status: "VOID",
+        bet_status: "VOID",
         settled_at: new Date().toISOString(),
       })
       .eq("id", bet.id)
-      .eq("status", "OPEN")
+      .eq("bet_status", "OPEN")
       .select("id")
       .maybeSingle();
 

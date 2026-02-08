@@ -116,7 +116,15 @@ export interface ApiBet {
   matchName?: string;
   marketName?: string;
   selectionName?: string;
+
+  // ✅ NEW: instance market metadata for over/ball display
+  ro_inning_number?: number;
+  ro_over_number?: number;
+  ro_ball_in_over?: number;
+  ro_ball_number?: number;
+  over_ball_label?: string;
 }
+
 
 // Casino results (lightweight stubs for UI)
 export interface SlotsResult {
@@ -662,34 +670,89 @@ class ApiClient {
       match_id: payload.matchId,
     });
   }
-async getUserBets(): Promise<{ bets: ApiBet[] }> {
-  // 1) Ensure logged in (this throws "Not authenticated" if missing)
+
+  async getUserBets(): Promise<{ bets: ApiBet[] }> {
+  // 1) Ensure logged in
   const { user } = await this.getCurrentUser();
 
-  // 2) Fetch bets
+  // 2) Fetch bets + match
   const { data, error } = await supabase
     .from("bets")
-    // Select all columns so we stay compatible with older/remote schemas
-    // (e.g., some DBs still use type/status/potential_profit instead of bet_type/bet_status/potential_payout)
-    .select(`
+    .select(
+      `
       *,
       match:matches (*)
-    `)
+    `,
+    )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
   if (error) {
-    // ✅ Make the error readable in UI
     console.error("getUserBets failed:", error);
-
     const msg =
-      error.message ||
+      (error as any).message ||
       (error as any)?.details ||
       "Failed to load bets (check RLS policies on bets table)";
     throw new Error(msg);
   }
 
-  const bets: ApiBet[] = (data || []).map((row: any) => {
+  const rows = data || [];
+
+  // 3) Collect INSTANCE market_ids and fetch their over/ball meta from instance_markets
+  const instanceMarketIds = Array.from(
+    new Set(
+      rows
+        .filter((row: any) => String(row.bet_category).toUpperCase() === "INSTANCE")
+        .map((row: any) => row.market_id)
+        .filter(Boolean),
+    ),
+  );
+
+  let instanceMeta: Record<
+    string,
+    {
+      inning?: number;
+      over?: number;
+      ball?: number;
+      label?: string;
+    }
+  > = {};
+
+  if (instanceMarketIds.length > 0) {
+    const { data: imData, error: imError } = await supabase
+      .from("instance_markets")
+      .select("id, ro_inning_number, ro_over_number, ro_ball_number")
+      .in("id", instanceMarketIds);
+
+    if (imError) {
+      console.error("getUserBets: instance_markets lookup failed:", imError);
+    } else {
+      instanceMeta = Object.fromEntries(
+        (imData || []).map((im: any) => {
+          const over = Number(im.ro_over_number ?? 0);
+          const ball = Number(im.ro_ball_number ?? 0);
+          const hasAny = over > 0 || ball > 0;
+          const label = hasAny ? `${over}.${ball}` : undefined;
+
+          return [
+            im.id,
+            {
+              inning:
+                im.ro_inning_number != null
+                  ? Number(im.ro_inning_number)
+                  : undefined,
+              over: over || undefined,
+              ball: ball || undefined,
+              label,
+            },
+          ];
+        }),
+      );
+    }
+  }
+
+  // 4) Map each bet row into ApiBet, merging in instance meta where available
+  const bets: ApiBet[] = rows.map((row: any) => {
     const status = (row.bet_status || row.status || "OPEN") as ApiBet["bet_status"];
     const type = (row.bet_type || row.type || "BACK") as ApiBet["bet_type"];
 
@@ -700,12 +763,40 @@ async getUserBets(): Promise<{ bets: ApiBet[] }> {
           ? `${row.match.home_team} vs ${row.match.away_team}`
           : row.match?.ro_competition_name || row.match?.league || "Match";
 
-    const marketName =
+    const baseMarketName =
       row.market_name ||
       row.market ||
       row.market_title ||
       row.bet_category ||
       "Market";
+
+    const inst = instanceMeta[row.market_id] || undefined;
+
+    // Merge over/ball from bets row and instance_markets
+    const ro_over_number =
+      row.ro_over_number != null
+        ? Number(row.ro_over_number)
+        : inst?.over ?? null;
+
+    const ro_ball_number_raw =
+      row.ro_ball_number ??
+      row.ro_ball_in_over ??
+      row.ball_in_over ??
+      row.ball_number ??
+      null;
+
+    const ro_ball_number =
+      ro_ball_number_raw != null
+        ? Number(ro_ball_number_raw)
+        : inst?.ball ?? null;
+
+    const over_ball_label =
+      row.over_ball_label ??
+      row.ball_over_label ??
+      (inst?.label ||
+        (ro_over_number != null && ro_ball_number != null
+          ? `${ro_over_number}.${ro_ball_number}`
+          : undefined));
 
     return {
       id: row.id,
@@ -738,19 +829,34 @@ async getUserBets(): Promise<{ bets: ApiBet[] }> {
 
       created_at: row.created_at,
 
-      // UI-friendly aliases used by your MyBets component
+      // UI aliases
       status: status as any,
       type: type as any,
       createdAt: row.created_at,
       settledAt: row.settled_at,
       matchName,
-      marketName,
+      marketName: baseMarketName,
       selectionName: row.runner_name,
+
+      // ✅ NEW: instance meta
+      ro_inning_number:
+        row.ro_inning_number != null
+          ? Number(row.ro_inning_number)
+          : inst?.inning,
+      ro_over_number: ro_over_number ?? undefined,
+      ro_ball_in_over:
+        row.ro_ball_in_over != null
+          ? Number(row.ro_ball_in_over)
+          : undefined,
+      ro_ball_number: ro_ball_number ?? undefined,
+      over_ball_label,
     };
   });
 
   return { bets };
 }
+
+
 
 
   // ==========================================================================

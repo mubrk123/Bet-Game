@@ -7,7 +7,12 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 
 import { useStore } from "@/lib/store";
-import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
@@ -31,6 +36,178 @@ const ivoryTheme = {
   chipBorder: "border-[#D9D2C6]",
   marine: "#2563EB",
 };
+
+/* ==========
+   TOP-LEVEL HELPERS
+========== */
+
+function escapeRegex(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function teamAliases(name: string): string[] {
+  if (!name) return [];
+  const trimmed = name.trim();
+  const words = trimmed.split(/\s+/);
+  const acronym = words.map((w) => w[0] || "").join("");
+  const short3 = trimmed.slice(0, 3);
+  return Array.from(
+    new Set([
+      trimmed,
+      trimmed.toUpperCase(),
+      acronym.toUpperCase(),
+      short3.toUpperCase(),
+    ])
+  ).filter(Boolean);
+}
+
+// helper to map runner to team by name
+function normalizeRunnerName(r: any): string {
+  return String(r.runner_name || r.name || r.teamName || "")
+    .trim()
+    .toUpperCase();
+}
+
+function findRunnerForTeam(
+  runners: any[],
+  teamName: string,
+  otherTeamName?: string
+): any | null {
+  if (!runners?.length || !teamName) return null;
+
+  const aliases = teamAliases(teamName).map((a) => a.toUpperCase());
+  const otherAliases = otherTeamName
+    ? teamAliases(otherTeamName).map((a) => a.toUpperCase())
+    : [];
+
+  // 1) strong match by aliases
+  let candidate =
+    runners.find((r) => {
+      const n = normalizeRunnerName(r);
+      return aliases.some((a) => n.includes(a) || a.includes(n));
+    }) || null;
+
+  if (candidate) return candidate;
+
+  // 2) fallback: something that is NOT obviously the other team
+  if (otherAliases.length) {
+    candidate =
+      runners.find((r) => {
+        const n = normalizeRunnerName(r);
+        return !otherAliases.some((a) => n.includes(a) || a.includes(n));
+      }) || null;
+    if (candidate) return candidate;
+  }
+
+  // 3) final fallback
+  return runners[0] || null;
+}
+
+function normalizeKey(val: string | null | undefined) {
+  if (!val) return null;
+  return String(val).trim().toLowerCase();
+}
+
+function runnerMatchesTeam(r: any, teamName: string | null | undefined) {
+  if (!r || !teamName) return false;
+  const aliases = teamAliases(teamName).map((a) => a.toUpperCase());
+  const n = normalizeRunnerName(r);
+  return aliases.some((a) => n.includes(a) || a.includes(n));
+}
+
+/**
+ * Central mapping for match-winner market:
+ * returns the correct runner for homeTeam and awayTeam.
+ */
+function mapMatchWinnerRunners(
+  match: Match,
+  matchWinnerMarket: Market | null
+): { homeRunner: Runner | null; awayRunner: Runner | null } {
+  const runners = (matchWinnerMarket?.runners || []) as any[];
+  if (!runners.length) {
+    return { homeRunner: null, awayRunner: null };
+  }
+
+  const homeKey = normalizeKey((match as any).homeTeamKey);
+  const awayKey = normalizeKey((match as any).awayTeamKey);
+
+  let homeRunner: any = null;
+  let awayRunner: any = null;
+
+  // 1) Try to map using team keys (most reliable when consistent)
+  if (homeKey || awayKey) {
+    for (const r of runners) {
+      const rKey = normalizeKey(
+        (r as any).ro_team_key ||
+          (r as any).teamKey ||
+          (r as any).team_key ||
+          null
+      );
+      if (!rKey) continue;
+      if (!homeRunner && homeKey && rKey === homeKey) {
+        homeRunner = r;
+      }
+      if (!awayRunner && awayKey && rKey === awayKey) {
+        awayRunner = r;
+      }
+    }
+  }
+
+  // 2) Fallback to name-based mapping if needed
+  if (!homeRunner) {
+    homeRunner = findRunnerForTeam(
+      runners,
+      match.homeTeam,
+      match.awayTeam
+    );
+  }
+  if (!awayRunner) {
+    awayRunner = findRunnerForTeam(
+      runners,
+      match.awayTeam,
+      match.homeTeam
+    );
+  }
+
+  // 3) If both sides mapped to the same runner, try to pick a different one for away
+  if (homeRunner && awayRunner && homeRunner === awayRunner && runners.length > 1) {
+    const alt = runners.find((r) => r !== homeRunner);
+    if (alt) {
+      awayRunner = alt;
+    }
+  }
+
+  // 4) Final fallbacks so UI always shows something
+  if (!homeRunner && !awayRunner) {
+    if (runners.length >= 1) homeRunner = runners[0];
+    if (runners.length >= 2) awayRunner = runners[1];
+  } else if (!homeRunner && awayRunner) {
+    homeRunner = runners.find((r) => r !== awayRunner) || runners[0];
+  } else if (!awayRunner && homeRunner) {
+    awayRunner = runners.find((r) => r !== homeRunner) || runners[0];
+  }
+
+  // 5) SAFETY CHECK: if they look obviously reversed (by name), swap them.
+  if (
+    homeRunner &&
+    awayRunner &&
+    runnerMatchesTeam(homeRunner, (match as any).awayTeam) &&
+    runnerMatchesTeam(awayRunner, (match as any).homeTeam)
+  ) {
+    const tmp = homeRunner;
+    homeRunner = awayRunner;
+    awayRunner = tmp;
+  }
+
+  return {
+    homeRunner: (homeRunner || null) as Runner | null,
+    awayRunner: (awayRunner || null) as Runner | null,
+  };
+}
+
+/* ==========
+   DASHBOARD COMPONENT
+========== */
 
 export default function Dashboard() {
   const { matches, setMatches, currentUser } = useStore();
@@ -151,7 +328,9 @@ export default function Dashboard() {
           )}
 
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-[#1A202C] truncate">{name}</p>
+            <p className="text-[13px] font-semibold text-[#1A202C] truncate">
+              {name}
+            </p>
             {score ? (
               <p className="font-mono tabular-nums text-[15px] font-bold text-[#1A202C] leading-none">
                 {score}
@@ -167,21 +346,6 @@ export default function Dashboard() {
         </div>
       </div>
     );
-  }
-
-  function escapeRegex(str: string) {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-
-  function teamAliases(name: string): string[] {
-    if (!name) return [];
-    const trimmed = name.trim();
-    const words = trimmed.split(/\s+/);
-    const acronym = words.map((w) => w[0] || "").join("");
-    const short3 = trimmed.slice(0, 3);
-    return Array.from(
-      new Set([trimmed, trimmed.toUpperCase(), acronym.toUpperCase(), short3.toUpperCase()])
-    ).filter(Boolean);
   }
 
   function hasScore(match: Match | null | undefined) {
@@ -202,11 +366,16 @@ export default function Dashboard() {
     const parsedHome = parseTeamScore(match.scoreDetails, match.homeTeam);
     const parsedAway = parseTeamScore(match.scoreDetails, match.awayTeam);
 
-    const parsedHasScore = (parsed: ReturnType<typeof parseTeamScore> | null) => {
+    const parsedHasScore = (
+      parsed: ReturnType<typeof parseTeamScore> | null
+    ) => {
       if (!parsed) return false;
       const runVal = parsed.score ? parseInt(parsed.score, 10) : NaN;
       const overVal = parsed.overs ? parseFloat(parsed.overs) : NaN;
-      return (Number.isFinite(runVal) && runVal > 0) || (Number.isFinite(overVal) && overVal > 0);
+      return (
+        (Number.isFinite(runVal) && runVal > 0) ||
+        (Number.isFinite(overVal) && overVal > 0)
+      );
     };
 
     return parsedHasScore(parsedHome) || parsedHasScore(parsedAway);
@@ -230,25 +399,6 @@ export default function Dashboard() {
     return `Toss: ${winner} won & elected to ${prettyDecision}`;
   }
 
-  // function parseTarget(details: string | null | undefined): number | null {
-  //   if (!details) return null;
-  //   const s = details.toLowerCase();
-  //   const m1 = s.match(/target[:\\s]+(\\d+)/i);
-  //   if (m1?.[1]) return Number(m1[1]);
-  //   const m2 = s.match(/(\\d+)\\s+runs?\\s+to\\s+win/i);
-  //   if (m2?.[1]) return Number(m2[1]);
-  //   return null;
-  // }
-
-  // function parseRequired(details: string | null | undefined): { runs: number; balls?: number | null } | null {
-  //   if (!details) return null;
-  //   const m1 = details.match(/(\\d+)\\s+runs?\\s+(?:to|needed to)\\s+win/i);
-  //   if (m1?.[1]) return { runs: Number(m1[1]), balls: null };
-  //   const m2 = details.match(/need\\s+(\\d+)\\s+runs?\\s+in\\s+(\\d+)\\s+balls/i);
-  //   if (m2?.[1] && m2?.[2]) return { runs: Number(m2[1]), balls: Number(m2[2]) };
-  //   return null;
-  // }
-
   function compactLabel(label?: string | null) {
     if (!label) return "";
     const v = label.trim();
@@ -266,7 +416,11 @@ export default function Dashboard() {
       );
       const m = details.match(re);
       if (m) {
-        const runs = m[1] ? `${m[1]}${m[2] ? `/${m[2].replace(/all\s*out/i, "10")}` : ""}` : null;
+        const runs = m[1]
+          ? `${m[1]}${
+              m[2] ? `/${m[2].replace(/all\s*out/i, "10")}` : ""
+            }`
+          : null;
         const overs = m[3] ? `${m[3]} ov` : null;
         if (runs) return { score: runs, overs };
       }
@@ -276,8 +430,18 @@ export default function Dashboard() {
 
   function resolveBattingSide(match: any): "home" | "away" | null {
     if (!match) return null;
-    if (match.battingTeamKey && match.homeTeamKey && match.battingTeamKey === match.homeTeamKey) return "home";
-    if (match.battingTeamKey && match.awayTeamKey && match.battingTeamKey === match.awayTeamKey) return "away";
+    if (
+      match.battingTeamKey &&
+      match.homeTeamKey &&
+      match.battingTeamKey === match.homeTeamKey
+    )
+      return "home";
+    if (
+      match.battingTeamKey &&
+      match.awayTeamKey &&
+      match.battingTeamKey === match.awayTeamKey
+    )
+      return "away";
     const details = match.scoreDetails || "";
     if (parseTeamScore(details, match.homeTeam)) return "home";
     if (parseTeamScore(details, match.awayTeam)) return "away";
@@ -295,9 +459,13 @@ export default function Dashboard() {
           runners: (market.runners || []).map((r: any) => ({
             ...r,
             backOdds:
-              typeof r.backOdds === "string" ? parseFloat(r.backOdds) : r.backOdds,
+              typeof r.backOdds === "string"
+                ? parseFloat(r.backOdds)
+                : r.backOdds,
             layOdds:
-              typeof r.layOdds === "string" ? parseFloat(r.layOdds) : r.layOdds,
+              typeof r.layOdds === "string"
+                ? parseFloat(r.layOdds)
+                : r.layOdds,
           })),
         })),
       };
@@ -314,7 +482,8 @@ export default function Dashboard() {
     });
 
     const sortByStart = (a: Match, b: Match) =>
-      new Date(a.startTime || 0).getTime() - new Date(b.startTime || 0).getTime();
+      new Date(a.startTime || 0).getTime() -
+      new Date(b.startTime || 0).getTime();
 
     const now = Date.now();
     const live = filteredByStatus.filter((m: any) => {
@@ -328,7 +497,10 @@ export default function Dashboard() {
       return status !== "LIVE";
     });
 
-    const ordered: Match[] = [...live.sort(sortByStart), ...upcoming.sort(sortByStart)];
+    const ordered: Match[] = [
+      ...live.sort(sortByStart),
+      ...upcoming.sort(sortByStart),
+    ];
 
     const current = useStore.getState().matches;
     if (
@@ -343,7 +515,9 @@ export default function Dashboard() {
           m.overs === ordered[i].overs &&
           m.toss_won_by === ordered[i].toss_won_by &&
           (m.elected_to || m.toss_decision || m.tossDecision) ===
-            (ordered[i].elected_to || ordered[i].toss_decision || ordered[i].tossDecision)
+            (ordered[i].elected_to ||
+              ordered[i].toss_decision ||
+              ordered[i].tossDecision)
       )
     ) {
       return;
@@ -394,31 +568,58 @@ export default function Dashboard() {
             m.id === payload.new.id
               ? {
                   ...m,
-                  status: (payload.new.display_status ?? payload.new.status ?? m.status) as Match["status"],
+                  status: (payload.new.display_status ??
+                    payload.new.status ??
+                    m.status) as Match["status"],
                   scoreDetails:
-                    payload.new.display_score ?? payload.new.score_details ?? m.scoreDetails,
+                    payload.new.display_score ??
+                    payload.new.score_details ??
+                    m.scoreDetails,
                   runs: payload.new.ro_score_runs ?? m.runs ?? null,
                   wickets: payload.new.ro_score_wickets ?? m.wickets ?? null,
                   overs:
                     payload.new.ro_score_overs != null
                       ? Number(payload.new.ro_score_overs)
                       : m.overs ?? null,
-                  currentInning: payload.new.ro_current_inning ?? m.currentInning ?? null,
-                  targetRuns: payload.new.ro_target_runs ?? m.targetRuns ?? null,
-                  battingTeamKey: payload.new.ro_batting_team_key ?? m.battingTeamKey ?? null,
-                  bowlingTeamKey: payload.new.ro_bowling_team_key ?? m.bowlingTeamKey ?? null,
+                  currentInning:
+                    payload.new.ro_current_inning ?? m.currentInning ?? null,
+                  targetRuns:
+                    payload.new.ro_target_runs ?? m.targetRuns ?? null,
+                  battingTeamKey:
+                    payload.new.ro_batting_team_key ??
+                    m.battingTeamKey ??
+                    null,
+                  bowlingTeamKey:
+                    payload.new.ro_bowling_team_key ??
+                    m.bowlingTeamKey ??
+                    null,
                   currentOver: payload.new.current_over ?? m.currentOver,
                   currentBall: payload.new.current_ball ?? m.currentBall,
                   updatedAt: payload.new.updated_at ?? m.updatedAt,
                   toss_won_by:
-                    payload.new.toss_won_by ?? payload.new.ro_toss_won_by ?? m.toss_won_by ?? null,
+                    payload.new.toss_won_by ??
+                    payload.new.ro_toss_won_by ??
+                    m.toss_won_by ??
+                    null,
                   elected_to:
-                    payload.new.elected_to ?? payload.new.ro_toss_decision ?? m.elected_to ?? null,
+                    payload.new.elected_to ??
+                    payload.new.ro_toss_decision ??
+                    m.elected_to ??
+                    null,
                   toss_decision:
-                    payload.new.elected_to ?? payload.new.ro_toss_decision ?? m.toss_decision ?? null,
+                    payload.new.elected_to ??
+                    payload.new.ro_toss_decision ??
+                    m.toss_decision ??
+                    null,
                   tossDecision:
-                    payload.new.elected_to ?? payload.new.ro_toss_decision ?? m.tossDecision ?? null,
-                  toss_recorded_at: payload.new.toss_recorded_at ?? m.toss_recorded_at ?? null,
+                    payload.new.elected_to ??
+                    payload.new.ro_toss_decision ??
+                    m.tossDecision ??
+                    null,
+                  toss_recorded_at:
+                    payload.new.toss_recorded_at ??
+                    m.toss_recorded_at ??
+                    null,
                 }
               : m
           );
@@ -450,7 +651,12 @@ export default function Dashboard() {
 
   return (
     <AppShell hideHeader>
-      <div className={cn("min-h-[calc(100vh-3rem)] -mx-3 md:-mx-6", ivoryTheme.canvas)}>
+      <div
+        className={cn(
+          "min-h-[calc(100vh-3rem)] -mx-3 md:-mx-6",
+          ivoryTheme.canvas
+        )}
+      >
         <div className="max-w-6xl mx-auto px-3 md:px-6 pt-3 pb-18 space-y-2.5">
           {/* Command Center */}
           <div
@@ -462,7 +668,9 @@ export default function Dashboard() {
           >
             {/* Row 1: Brand */}
             <div className="w-full flex justify-center">
-              <div className="text-2xl font-extrabold tracking-tight text-[#0F172A]">CricFun</div>
+              <div className="text-2xl font-extrabold tracking-tight text-[#0F172A]">
+                CricFun
+              </div>
             </div>
 
             {/* Row 2: Filters + balance */}
@@ -482,7 +690,11 @@ export default function Dashboard() {
                           : `bg-[#F8FAFC] ${ivoryTheme.subtext} hover:bg-[#EDF2F7]`
                       )}
                     >
-                      {key === "all" ? "All" : key === "live" ? "Live" : "Upcoming"}
+                      {key === "all"
+                        ? "All"
+                        : key === "live"
+                        ? "Live"
+                        : "Upcoming"}
                     </button>
                   );
                 })}
@@ -490,21 +702,31 @@ export default function Dashboard() {
 
               {currentUser && (
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#D9D2C6] bg-[#FDFBF6]">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1F2733" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#1F2733"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <path d="M3 7h18v10H3z" />
                     <path d="M16 12h.01" />
                     <path d="M5 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
                   </svg>
                   <span className="font-mono text-sm font-semibold text-[#1F2733]">
-                    {currentUser.currency} {currentUser.balance.toLocaleString()}
+                    {currentUser.currency}{" "}
+                    {currentUser.balance.toLocaleString()}
                   </span>
                 </div>
               )}
             </div>
           </div>
 
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-12 lg:col-span-8 xl:col-span-9">
+          <div className="grid grid-cols-12 gap-4">
+            <div className="col-span-12 lg:col-span-8 xl:col-span-9">
               {/* Match grid */}
               {isLoading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-1">
@@ -527,33 +749,28 @@ export default function Dashboard() {
 
                     const battingSide = isLive ? resolveBattingSide(match) : null;
 
-                  const parsedHome = parseTeamScore(match.scoreDetails, match.homeTeam);
-                  const parsedAway = parseTeamScore(match.scoreDetails, match.awayTeam);
+                    const parsedHome = parseTeamScore(
+                      match.scoreDetails,
+                      match.homeTeam
+                    );
+                    const parsedAway = parseTeamScore(
+                      match.scoreDetails,
+                      match.awayTeam
+                    );
 
                     const liveScore =
                       isLive && match.runs != null
                         ? `${match.runs}/${match.wickets ?? 0}`
                         : isLive
-                          ? parsedHome?.score || parsedAway?.score || null
-                          : null;
+                        ? parsedHome?.score || parsedAway?.score || null
+                        : null;
 
                     const liveOvers =
                       isLive && match.overs != null
                         ? `${match.overs} ov`
                         : isLive
-                          ? parsedHome?.overs || parsedAway?.overs || null
-                          : null;
-
-                    // const homeScore =
-                    //   parsedHome?.score ||
-                    //   (isLive && match.runs != null && battingSide === "home"
-                    //     ? `${match.runs}/${match.wickets ?? 0}`
-                    //     : null);
-                    // const awayScore =
-                    //   parsedAway?.score ||
-                    //   (isLive && match.runs != null && battingSide === "away"
-                    //     ? `${match.runs}/${match.wickets ?? 0}`
-                    //     : null);
+                        ? parsedHome?.overs || parsedAway?.overs || null
+                        : null;
 
                     const targetLine =
                       isLive &&
@@ -563,8 +780,18 @@ export default function Dashboard() {
                         ? `Target ${match.targetRuns}`
                         : null;
 
-                    const homeRole = battingSide === "home" ? "Batting" : battingSide === "away" ? "Bowling" : null;
-                    const awayRole = battingSide === "away" ? "Batting" : battingSide === "home" ? "Bowling" : null;
+                    const homeRole =
+                      battingSide === "home"
+                        ? "Batting"
+                        : battingSide === "away"
+                        ? "Bowling"
+                        : null;
+                    const awayRole =
+                      battingSide === "away"
+                        ? "Batting"
+                        : battingSide === "home"
+                        ? "Bowling"
+                        : null;
 
                     const statusPill = isLive ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-[#DCFCE7] text-[#15803D] px-2 py-[3px] text-[11px] font-semibold border border-[#BBF7D0]">
@@ -579,8 +806,14 @@ export default function Dashboard() {
 
                     const matchWinnerMarket: Market | null =
                       ((match.markets || []) as Market[]).find((m) => {
-                        const name = String((m as any).market_name || m.name || "").toLowerCase();
-                        return name.includes("match winner") || name === "winner" || name === "win";
+                        const name = String(
+                          (m as any).market_name || m.name || ""
+                        ).toLowerCase();
+                        return (
+                          name.includes("match winner") ||
+                          name === "winner" ||
+                          name === "win"
+                        );
                       }) || null;
 
                     const normalizedMarket =
@@ -594,8 +827,12 @@ export default function Dashboard() {
 
                     const tossLine = getTossLine(match);
 
-                    const runners = matchWinnerMarket ? (matchWinnerMarket.runners || []).slice(0, 2) : [];
                     const countdownExact = formatCountdownExact(match.startTime);
+
+                    const { homeRunner, awayRunner } = mapMatchWinnerRunners(
+                      match,
+                      matchWinnerMarket
+                    );
 
                     return (
                       <div
@@ -637,7 +874,11 @@ export default function Dashboard() {
                               banner={match.homeTeamBanner}
                               score={null}
                               subline={homeRole}
-                              extra={battingSide === "home" && targetLine ? targetLine : null}
+                              extra={
+                                battingSide === "home" && targetLine
+                                  ? targetLine
+                                  : null
+                              }
                               align="left"
                             />
                             <div className="flex flex-col items-center justify-center text-center min-w-0">
@@ -665,7 +906,11 @@ export default function Dashboard() {
                               banner={match.awayTeamBanner}
                               score={null}
                               subline={awayRole}
-                              extra={battingSide === "away" && targetLine ? targetLine : null}
+                              extra={
+                                battingSide === "away" && targetLine
+                                  ? targetLine
+                                  : null
+                              }
                               align="right"
                             />
                           </div>
@@ -678,45 +923,137 @@ export default function Dashboard() {
                         )}
 
                         {/* Simple odds for Match Winner only */}
-                        {runners.length > 0 && (
-                          <div className="pt-1" onClick={(e) => e.stopPropagation()}>
+                        {(homeRunner || awayRunner) && (
+                          <div
+                            className="pt-1"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <div className="grid grid-cols-2 gap-1.25">
-                              {runners.map((r: any, idx: number) => {
-                                const back = Number(r.backOdds ?? r.back_odds ?? 0).toFixed(2);
-                                const lay = Number(r.layOdds ?? r.lay_odds ?? 0).toFixed(2);
-                                return (
-                                  <div key={r.id || idx} className="space-y-1">
-                                    <div className="grid grid-cols-2 gap-1">
-                                      <button
-                                        className={cn(
-                                          "rounded-md border border-[#34D399] bg-[#ECFDF3] py-2 text-center text-[13px] font-semibold text-[#065F46]",
-                                          "hover:shadow-sm transition"
-                                        )}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          normalizedMarket &&
-                                          handleBetSelect(match, normalizedMarket, r, "BACK", Number(back));
-                                        }}
-                                      >
-                                        Back {back}
-                                      </button>
-                                      <button
-                                        className={cn(
-                                          "rounded-md border border-[#FECACA] bg-[#FEF2F2] py-2 text-center text-[13px] font-semibold text-[#991B1B]",
-                                          "hover:shadow-sm transition"
-                                        )}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          normalizedMarket &&
-                                          handleBetSelect(match, normalizedMarket, r, "LAY", Number(lay));
-                                        }}
-                                      >
-                                        Lay {lay}
-                                      </button>
-                                    </div>
+                              {/* Home side odds */}
+                              {homeRunner && (
+                                <div className="space-y-1">
+                                  <div className="grid grid-cols-2 gap-1">
+                                    {(() => {
+                                      const back = Number(
+                                        (homeRunner as any).backOdds ??
+                                          (homeRunner as any).back_odds ??
+                                          0
+                                      ).toFixed(2);
+                                      const lay = Number(
+                                        (homeRunner as any).layOdds ??
+                                          (homeRunner as any).lay_odds ??
+                                          0
+                                      ).toFixed(2);
+
+                                      return (
+                                        <>
+                                          <button
+                                            className={cn(
+                                              "rounded-md border border-[#34D399] bg-[#ECFDF3] py-2 text-center text-[13px] font-semibold text-[#065F46]",
+                                              "hover:shadow-sm transition"
+                                            )}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              normalizedMarket &&
+                                                handleBetSelect(
+                                                  match,
+                                                  normalizedMarket,
+                                                  homeRunner,
+                                                  "BACK",
+                                                  Number(back)
+                                                );
+                                            }}
+                                          >
+                                            Back {back}
+                                          </button>
+                                          <button
+                                            className={cn(
+                                              "rounded-md border border-[#FECACA] bg-[#FEF2F2] py-2 text-center text-[13px] font-semibold text-[#991B1B]",
+                                              "hover:shadow-sm transition"
+                                            )}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              normalizedMarket &&
+                                                handleBetSelect(
+                                                  match,
+                                                  normalizedMarket,
+                                                  homeRunner,
+                                                  "LAY",
+                                                  Number(lay)
+                                                );
+                                            }}
+                                          >
+                                            Lay {lay}
+                                          </button>
+                                        </>
+                                      );
+                                    })()}
                                   </div>
-                                );
-                              })}
+                                </div>
+                              )}
+
+                              {/* Away side odds */}
+                              {awayRunner && (
+                                <div className="space-y-1">
+                                  <div className="grid grid-cols-2 gap-1">
+                                    {(() => {
+                                      const back = Number(
+                                        (awayRunner as any).backOdds ??
+                                          (awayRunner as any).back_odds ??
+                                          0
+                                      ).toFixed(2);
+                                      const lay = Number(
+                                        (awayRunner as any).layOdds ??
+                                          (awayRunner as any).lay_odds ??
+                                          0
+                                      ).toFixed(2);
+
+                                      return (
+                                        <>
+                                          <button
+                                            className={cn(
+                                              "rounded-md border border-[#34D399] bg-[#ECFDF3] py-2 text-center text-[13px] font-semibold text-[#065F46]",
+                                              "hover:shadow-sm transition"
+                                            )}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              normalizedMarket &&
+                                                handleBetSelect(
+                                                  match,
+                                                  normalizedMarket,
+                                                  awayRunner,
+                                                  "BACK",
+                                                  Number(back)
+                                                );
+                                            }}
+                                          >
+                                            Back {back}
+                                          </button>
+                                          <button
+                                            className={cn(
+                                              "rounded-md border border-[#FECACA] bg-[#FEF2F2] py-2 text-center text-[13px] font-semibold text-[#991B1B]",
+                                              "hover:shadow-sm transition"
+                                            )}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              normalizedMarket &&
+                                                handleBetSelect(
+                                                  match,
+                                                  normalizedMarket,
+                                                  awayRunner,
+                                                  "LAY",
+                                                  Number(lay)
+                                                );
+                                            }}
+                                          >
+                                            Lay {lay}
+                                          </button>
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -734,19 +1071,29 @@ export default function Dashboard() {
 
       {!isMobile && selectedBet && (
         <div className="fixed bottom-6 right-6 z-50 w-[360px]">
-          <BetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} variant="compact" />
+          <BetSlip
+            selectedBet={selectedBet}
+            onClear={() => setSelectedBet(null)}
+            variant="compact"
+          />
         </div>
       )}
 
       {/* Mobile bet slip drawer */}
-      <Sheet open={!!selectedBet && isMobile} onOpenChange={(open) => !open && setSelectedBet(null)}>
+      <Sheet
+        open={!!selectedBet && isMobile}
+        onOpenChange={(open) => !open && setSelectedBet(null)}
+      >
         <SheetContent side="bottom" className="rounded-t-3xl p-0 h-auto pb-6">
           <SheetTitle className="sr-only">Bet Slip</SheetTitle>
           <SheetDescription className="sr-only">
             Choose your selection, stake, and place the bet.
           </SheetDescription>
           <div className="p-3">
-            <MobileBetSlip selectedBet={selectedBet} onClear={() => setSelectedBet(null)} />
+            <MobileBetSlip
+              selectedBet={selectedBet}
+              onClear={() => setSelectedBet(null)}
+            />
           </div>
         </SheetContent>
       </Sheet>
