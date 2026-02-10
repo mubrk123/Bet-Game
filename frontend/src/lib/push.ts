@@ -78,29 +78,31 @@ async function requestAndSaveToken(userId: string) {
       provider: "fcm",
       is_active: true,
     },
-    { onConflict: "token" }
+    { onConflict: "user_id,platform,provider" }
   );
 }
 
-export async function ensurePushForUser(userId: string | null | undefined) {
-  if (!userId) return;
+export async function ensurePushForUser() {
   if (!("Notification" in window) || !hasFirebaseConfig) return;
+
+  const { data: authData } = await supabase.auth.getUser();
+  const authId = authData?.user?.id;
+  if (!authId) return; // no auth session -> cannot pass RLS
 
   await initFirebaseMessaging();
 
   const perm = Notification.permission;
   if (perm === "granted") {
-    await requestAndSaveToken(userId);
+    await requestAndSaveToken(authId);
     return;
   }
 
   if (perm === "denied") {
     if (shouldRePrompt()) {
-      // Let browser decide; may still be blocked
       const result = await Notification.requestPermission();
       recordPromptTime();
       if (result === "granted") {
-        await requestAndSaveToken(userId);
+        await requestAndSaveToken(authId);
       }
     }
     return;
@@ -110,6 +112,6 @@ export async function ensurePushForUser(userId: string | null | undefined) {
   const result = await Notification.requestPermission();
   recordPromptTime();
   if (result === "granted") {
-    await requestAndSaveToken(userId);
+    await requestAndSaveToken(authId);
   }
 }

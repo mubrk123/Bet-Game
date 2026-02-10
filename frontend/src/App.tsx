@@ -79,13 +79,9 @@ function Router() {
     checkAuth();
   }, [setCurrentUser]);
 
-  const currentUser = useStore(state => state.currentUser);
-
   useEffect(() => {
-    if (currentUser?.id) {
-      ensurePushForUser(currentUser.id);
-    }
-  }, [currentUser?.id]);
+    ensurePushForUser();
+  }, []);
 
   if (isChecking) {
     return <PageLoader />;
