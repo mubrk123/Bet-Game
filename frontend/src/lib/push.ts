@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from "firebase/app";
-import { getMessaging, getToken } from "firebase/messaging";
+import { getMessaging, getToken, isSupported } from "firebase/messaging";
 import type { Messaging } from "firebase/messaging";
 import { supabase } from "./supabase";
 
@@ -27,29 +27,11 @@ let registering = false;
 const PROMPT_KEY = "push_last_prompt_at";
 const PROMPT_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12h
 
-function buildServiceWorkerScript() {
-  return `
-    importScripts('https://www.gstatic.com/firebasejs/11.0.0/firebase-app-compat.js');
-    importScripts('https://www.gstatic.com/firebasejs/11.0.0/firebase-messaging-compat.js');
-    firebase.initializeApp({
-      apiKey: '${VITE_FIREBASE_API_KEY}',
-      authDomain: '${VITE_FIREBASE_AUTH_DOMAIN}',
-      projectId: '${VITE_FIREBASE_PROJECT_ID}',
-      appId: '${VITE_FIREBASE_APP_ID}',
-      messagingSenderId: '${VITE_FIREBASE_MESSAGING_SENDER_ID}'
-    });
-    const messaging = firebase.messaging();
-    messaging.onBackgroundMessage(() => {});
-  `;
-}
-
 async function ensureServiceWorker() {
   if (swRegistration || registering) return swRegistration;
   registering = true;
-  const script = buildServiceWorkerScript();
-  const blob = new Blob([script], { type: "application/javascript" });
-  const url = URL.createObjectURL(blob);
-  swRegistration = await navigator.serviceWorker.register(url);
+  // Expect a static SW at /firebase-messaging-sw.js (placed in /public)
+  swRegistration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
   registering = false;
   return swRegistration;
 }
@@ -65,6 +47,8 @@ function recordPromptTime() {
 
 async function initFirebaseMessaging() {
   if (!hasFirebaseConfig) return null;
+  const supported = await isSupported().catch(() => false);
+  if (!supported) return null;
   if (!getApps().length) {
     initializeApp({
       apiKey: VITE_FIREBASE_API_KEY,
