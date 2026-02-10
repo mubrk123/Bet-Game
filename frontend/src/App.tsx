@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useStore } from "@/lib/store";
 import { useEffect, useState, lazy, Suspense } from "react";
 import { api } from "@/lib/api";
+import { ensurePushForUser } from "@/lib/push";
 
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const Casino = lazy(() => import("@/pages/casino"));
@@ -77,6 +78,14 @@ function Router() {
 
     checkAuth();
   }, [setCurrentUser]);
+
+  const currentUser = useStore(state => state.currentUser);
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      ensurePushForUser(currentUser.id);
+    }
+  }, [currentUser?.id]);
 
   if (isChecking) {
     return <PageLoader />;

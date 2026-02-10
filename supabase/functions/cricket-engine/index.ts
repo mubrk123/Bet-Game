@@ -555,6 +555,461 @@ async function ensureMatchWinnerMarket(matchId: string, teams: any) {
   if (runners.length) await supabase.from("market_runners").insert(runners);
 }
 
+// ======================= NOTIFICATIONS =======================
+type NotificationEventType =
+  | "TOSS_RESULT"
+  | "START_MINUS5"
+  | "LIVE_START"
+  | "OVER_6"
+  | "OVER_10"
+  | "OVER_15"
+  | "INNINGS_END"
+  | "PRE_INNINGS2"
+  | "MATCH_END"
+  | "CUSTOM";
+
+type NotificationContext = {
+  matchId: string;
+  homeTeam: string;
+  awayTeam: string;
+  tossWinner?: string | null;
+  tossDecision?: string | null;
+  score?: string | null;
+  runs?: number | null;
+  wickets?: number | null;
+  overs?: number | null;
+  runRate?: string | null;
+  target?: number | null;
+  inning?: number | null;
+  over?: number | null;
+  oddsHome?: number | null;
+  oddsAway?: number | null;
+  status?: string | null;
+};
+
+const normalizeName = (val?: string | null) =>
+  (val || "").toLowerCase().trim();
+
+const oversToFloat = (overs?: number | null) => {
+  if (!Number.isFinite(Number(overs))) return null;
+  const raw = Number(overs);
+  const whole = Math.floor(raw);
+  const balls = Math.round((raw - whole) * 10);
+  return whole + balls / 6;
+};
+
+async function fetchMatchWinnerOdds(
+  matchId: string,
+  homeGuess?: string | null,
+  awayGuess?: string | null,
+): Promise<{ homeOdds: number | null; awayOdds: number | null }> {
+  const { data: market } = await supabase
+    .from("markets")
+    .select("id")
+    .eq("match_id", matchId)
+    .eq("market_name", "Match Winner")
+    .order("open_time", { ascending: false })
+    .maybeSingle();
+
+  if (!market?.id) return { homeOdds: null, awayOdds: null };
+
+  const { data: runners } = await supabase
+    .from("market_runners")
+    .select("runner_name, back_odds, metadata")
+    .eq("market_id", market.id);
+
+  if (!runners?.length) return { homeOdds: null, awayOdds: null };
+
+  let homeOdds: number | null = null;
+  let awayOdds: number | null = null;
+
+  for (const r of runners) {
+    const meta = (r as any).metadata || {};
+    const isHome =
+      meta.is_home === true ||
+      (homeGuess && normalizeName(r.runner_name) === normalizeName(homeGuess));
+    const isAway =
+      meta.is_away === true ||
+      (awayGuess && normalizeName(r.runner_name) === normalizeName(awayGuess));
+
+    if (isHome) homeOdds = Number(r.back_odds ?? homeOdds);
+    if (isAway) awayOdds = Number(r.back_odds ?? awayOdds);
+  }
+
+  return { homeOdds, awayOdds };
+}
+
+async function fetchMatchContext(
+  matchId: string,
+  partial?: Partial<NotificationContext>,
+): Promise<NotificationContext> {
+  const { data: row } = await supabase
+    .from("matches")
+    .select(
+      "home_team, away_team, ro_team_home_name, ro_team_away_name, display_score, ro_score_runs, ro_score_wickets, ro_score_overs, target_runs, ro_last_payload, toss_won_by, elected_to, display_status"
+    )
+    .eq("id", matchId)
+    .maybeSingle();
+
+  const homeTeam = (row?.ro_team_home_name || row?.home_team || "Home").trim();
+  const awayTeam = (row?.ro_team_away_name || row?.away_team || "Away").trim();
+
+  const runs = Number.isFinite(Number(row?.ro_score_runs))
+    ? Number(row?.ro_score_runs)
+    : null;
+  const wickets = Number.isFinite(Number(row?.ro_score_wickets))
+    ? Number(row?.ro_score_wickets)
+    : null;
+  const oversRaw = Number.isFinite(Number(row?.ro_score_overs))
+    ? Number(row?.ro_score_overs)
+    : null;
+  const oversFloat = oversToFloat(oversRaw);
+  const runRate =
+    runs !== null && oversFloat && oversFloat > 0
+      ? (runs / oversFloat).toFixed(2)
+      : null;
+
+  let score = row?.display_score || null;
+  if (!score && runs !== null) {
+    const wicketPart = wickets !== null ? `/${wickets}` : "";
+    const overPart = oversRaw !== null ? ` (${oversRaw})` : "";
+    score = `${runs}${wicketPart}${overPart}`;
+  }
+
+  const { homeOdds, awayOdds } = await fetchMatchWinnerOdds(
+    matchId,
+    homeTeam,
+    awayTeam,
+  );
+
+  return {
+    matchId,
+    homeTeam,
+    awayTeam,
+    tossWinner: row?.toss_won_by ?? null,
+    tossDecision: row?.elected_to ?? null,
+    score,
+    runs,
+    wickets,
+    overs: oversRaw,
+    runRate,
+    target: Number.isFinite(Number((row as any)?.ro_target_runs))
+      ? Number((row as any).ro_target_runs)
+      : Number.isFinite(Number(row?.target_runs))
+      ? Number(row?.target_runs)
+      : null,
+    inning: partial?.inning ?? null,
+    over: partial?.over ?? null,
+    oddsHome: homeOdds,
+    oddsAway: awayOdds,
+    status: row?.display_status ?? null,
+    ...partial,
+  };
+}
+
+function renderNotification(
+  event: NotificationEventType,
+  ctx: NotificationContext,
+): { title: string; body: string; payload: any } | null {
+  const oddsLine =
+    ctx.oddsHome || ctx.oddsAway
+      ? `${ctx.homeTeam} ${ctx.oddsHome ?? "--"} | ${ctx.awayTeam} ${ctx.oddsAway ?? "--"}`
+      : `${ctx.homeTeam} vs ${ctx.awayTeam}`;
+
+  const scoreLine = ctx.score || "Live score unavailable";
+  const rr = ctx.runRate ? ` RR ${ctx.runRate}` : "";
+
+  switch (event) {
+    case "TOSS_RESULT":
+      return {
+        title: "Toss update",
+        body: `${ctx.tossWinner || "Toss"} choose to ${ctx.tossDecision || "decide"}. Early edge? ${oddsLine}`,
+        payload: ctx,
+      };
+    case "START_MINUS5":
+      return {
+        title: "5 minutes to start",
+        body: `${ctx.homeTeam} vs ${ctx.awayTeam} starts soon. Lock picks before odds move: ${oddsLine}`,
+        payload: ctx,
+      };
+    case "LIVE_START":
+      return {
+        title: "We're live",
+        body: `${ctx.homeTeam} vs ${ctx.awayTeam} underway. Live odds: ${oddsLine}`,
+        payload: ctx,
+      };
+    case "OVER_6":
+      return {
+        title: "Powerplay done",
+        body: `${scoreLine}${rr}. Momentum call? ${oddsLine}`,
+        payload: ctx,
+      };
+    case "OVER_10":
+      return {
+        title: "10-over check",
+        body: `${scoreLine}${rr}. Spot value on totals & wickets.`,
+        payload: ctx,
+      };
+    case "OVER_15":
+      return {
+        title: "Death overs coming",
+        body: `${scoreLine}${rr}. Who finishes stronger? ${oddsLine}`,
+        payload: ctx,
+      };
+    case "INNINGS_END":
+      return {
+        title: "Innings complete",
+        body: `Score: ${scoreLine}. Target ${ctx.target ?? "tbd"}. Back a chase or a defend? ${oddsLine}`,
+        payload: ctx,
+      };
+    case "PRE_INNINGS2":
+      return {
+        title: "Second innings imminent",
+        body: `Target ${ctx.target ?? "tbd"}. Odds now: ${oddsLine}. Set your stance.`,
+        payload: ctx,
+      };
+    case "MATCH_END":
+      return {
+        title: "Match finished",
+        body: `${ctx.homeTeam} vs ${ctx.awayTeam} wrapped. Final: ${scoreLine}. Check your returns.`,
+        payload: ctx,
+      };
+    default:
+      return null;
+  }
+}
+
+async function getInterestedUsers(matchId: string): Promise<string[]> {
+  const userIds = new Set<string>();
+
+  const { data: subs } = await supabase
+    .from("user_match_subscriptions")
+    .select("user_id")
+    .eq("match_id", matchId)
+    .eq("is_active", true);
+
+  subs?.forEach((s: any) => s?.user_id && userIds.add(String(s.user_id)));
+
+  const { data: betUsers } = await supabase
+    .from("bets")
+    .select("user_id")
+    .eq("match_id", matchId);
+
+  betUsers?.forEach((b: any) => b?.user_id && userIds.add(String(b.user_id)));
+
+  const { data: instUsers } = await supabase
+    .from("instance_bets")
+    .select("user_id")
+    .eq("match_id", matchId);
+
+  instUsers?.forEach((b: any) => b?.user_id && userIds.add(String(b.user_id)));
+
+  // Also push to any user who has an active device token (global broadcast)
+  const { data: deviceUsers } = await supabase
+    .from("user_devices")
+    .select("user_id")
+    .eq("is_active", true);
+
+  deviceUsers?.forEach((d: any) => d?.user_id && userIds.add(String(d.user_id)));
+
+  return Array.from(userIds);
+}
+
+async function fanoutNotification(
+  notificationId: string,
+  matchId: string,
+  payload: any,
+) {
+  const users = await getInterestedUsers(matchId);
+  if (!users.length) return;
+
+  const { data: nRow } = await supabase
+    .from("match_notifications")
+    .select("title, body")
+    .eq("id", notificationId)
+    .maybeSingle();
+
+  const nowIso = new Date().toISOString();
+  const inAppRows = users.map((uid) => ({
+    user_id: uid,
+    notification_id: notificationId,
+    match_id: matchId,
+    channel: "IN_APP",
+    status: "SENT",
+    sent_at: nowIso,
+    payload: { ...(payload ?? {}), title: nRow?.title, body: nRow?.body },
+  }));
+
+  await supabase.from("user_notifications").upsert(inAppRows, {
+    onConflict: "notification_id,user_id,channel",
+    ignoreDuplicates: true,
+  });
+
+  // Push channel: one token per user (first active token)
+  const { data: devices } = await supabase
+    .from("user_devices")
+    .select("user_id, token, platform, provider")
+    .in("user_id", users)
+    .eq("is_active", true);
+
+  if (devices?.length) {
+    const pushRows: any[] = [];
+    const seenUser: Set<string> = new Set();
+    for (const d of devices) {
+      const uid = String(d.user_id);
+      if (seenUser.has(uid)) continue; // one token per user to avoid UNIQUE clash
+      seenUser.add(uid);
+      pushRows.push({
+        user_id: uid,
+        notification_id: notificationId,
+        match_id: matchId,
+        channel: "PUSH",
+        status: "QUEUED",
+        payload: {
+          ...(payload ?? {}),
+          title: nRow?.title,
+          body: nRow?.body,
+          token: d.token,
+          platform: d.platform,
+          provider: d.provider || "fcm",
+        },
+      });
+    }
+    if (pushRows.length) {
+      await supabase.from("user_notifications").upsert(pushRows, {
+        onConflict: "notification_id,user_id,channel",
+        ignoreDuplicates: true,
+      });
+    }
+  }
+}
+
+async function emitNotification(
+  event: NotificationEventType,
+  matchId: string,
+  opts: {
+    inning?: number;
+    over?: number;
+    payload?: any;
+    context?: Partial<NotificationContext>;
+    dedupeKey?: string;
+  } = {},
+): Promise<string | null> {
+  const dedupe = opts.dedupeKey ??
+    `${matchId}:${event}:${opts.inning ?? "x"}:${opts.over ?? "x"}`;
+
+  const { data: existing } = await supabase
+    .from("match_notifications")
+    .select("id")
+    .eq("dedupe_key", dedupe)
+    .maybeSingle();
+
+  if (existing?.id) return existing.id;
+
+  const ctx = await fetchMatchContext(matchId, {
+    inning: opts.inning ?? null,
+    over: opts.over ?? null,
+    ...(opts.context || {}),
+  });
+
+  const rendered = renderNotification(event, ctx);
+  if (!rendered) return null;
+
+  const nowIso = new Date().toISOString();
+
+  const { data: row, error: nErr } = await supabase
+    .from("match_notifications")
+    .insert({
+      match_id: matchId,
+      inning: opts.inning ?? null,
+      over: opts.over ?? null,
+      event_type: event,
+      title: rendered.title,
+      body: rendered.body,
+      payload: opts.payload ?? rendered.payload,
+      status: "SENT",
+      dedupe_key: dedupe,
+      event_at: nowIso,
+      sent_at: nowIso,
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (nErr || !row?.id) {
+    console.error("[notifications] insert failed", { matchId, event, nErr });
+    return null;
+  }
+
+  await fanoutNotification(row.id, matchId, opts.payload ?? rendered.payload);
+  return row.id;
+}
+
+async function safeEmitNotification(
+  event: NotificationEventType,
+  matchId: string,
+  opts: {
+    inning?: number;
+    over?: number;
+    payload?: any;
+    context?: Partial<NotificationContext>;
+    dedupeKey?: string;
+  } = {},
+) {
+  try {
+    return await emitNotification(event, matchId, opts);
+  } catch (err) {
+    console.error("[notifications] emit failed", { matchId, event, err });
+    return null;
+  }
+}
+
+async function emitBallNotifications(args: {
+  matchId: string;
+  inningNumber: number;
+  overNumber: number;
+  ballInOver: number;
+  prevInning: number | null;
+  prevDisplay: string | null;
+}) {
+  const { matchId, inningNumber, overNumber, ballInOver, prevInning, prevDisplay } =
+    args;
+
+  // Live start (first ball)
+  if (prevDisplay !== "LIVE") {
+    await safeEmitNotification("LIVE_START", matchId, { inning: inningNumber });
+  }
+
+  // Over milestones (completed over)
+  if (ballInOver === 6) {
+    if (overNumber === 6) {
+      await safeEmitNotification("OVER_6", matchId, {
+        inning: inningNumber,
+        over: overNumber,
+      });
+    } else if (overNumber === 10) {
+      await safeEmitNotification("OVER_10", matchId, {
+        inning: inningNumber,
+        over: overNumber,
+      });
+    } else if (overNumber === 15) {
+      await safeEmitNotification("OVER_15", matchId, {
+        inning: inningNumber,
+        over: overNumber,
+      });
+    }
+  }
+
+  // Inning change (first ball of new inning)
+  if (prevInning && inningNumber > prevInning) {
+    await safeEmitNotification("INNINGS_END", matchId, {
+      inning: prevInning,
+    });
+    await safeEmitNotification("PRE_INNINGS2", matchId, {
+      inning: inningNumber,
+    });
+  }
+}
+
 // ======================= PLAYERS UPSERT (SAFE) =======================
 // Never overwrite an existing player name/team_key with null.
 // Always update last_seen/updated_at.
@@ -828,11 +1283,15 @@ const bowlerNameFinal =
   // We need home/away keys from matches row.
   let homeKey: string | null = null;
   let awayKey: string | null = null;
+  let prevInning: number | null = null;
+  let prevDisplay: string | null = null;
 
   {
     const { data: mrow, error: mErr } = await supabase
       .from("matches")
-      .select("ro_team_home_key, ro_team_away_key")
+      .select(
+        "ro_team_home_key, ro_team_away_key, ro_current_inning, display_status"
+      )
       .eq("id", matchId)
       .maybeSingle();
 
@@ -840,6 +1299,10 @@ const bowlerNameFinal =
 
     homeKey = mrow?.ro_team_home_key ? String(mrow.ro_team_home_key) : null;
     awayKey = mrow?.ro_team_away_key ? String(mrow.ro_team_away_key) : null;
+    prevInning = Number.isFinite(Number(mrow?.ro_current_inning))
+      ? Number(mrow?.ro_current_inning)
+      : null;
+    prevDisplay = (mrow?.display_status || null) as string | null;
   }
 
   const matchUpdate: any = {
@@ -895,6 +1358,16 @@ const bowlerNameFinal =
     await createNextWicketMethodMarket(matchId, inningNumber, overNumber);
   }
 
+  // ---- Notification pipeline (non-blocking) ----
+  await emitBallNotifications({
+    matchId,
+    inningNumber,
+    overNumber,
+    ballInOver,
+    prevInning,
+    prevDisplay,
+  });
+
   // ---- Kick off live odds refresh (non-blocking, debounced per match) ----
   // Roanuz snapshot carries bet_odds/result_prediction; we poll it after balls.
   const now = Date.now();
@@ -928,7 +1401,9 @@ async function handleNonBallUpdate(body: any) {
   // Fetch previous display_status to avoid downgrading LIVE to UPCOMING during pauses/breaks
   const { data: prevRow } = await supabase
     .from("matches")
-    .select("display_status, ro_status")
+    .select(
+      "display_status, ro_status, toss_won_by, elected_to, toss_recorded_at, ro_current_inning"
+    )
     .eq("id", matchId)
     .maybeSingle();
   const prevDisplay = (prevRow?.display_status || null) as "UPCOMING" | "LIVE" | "FINISHED" | null;
@@ -997,6 +1472,22 @@ async function handleNonBallUpdate(body: any) {
   // If this push is a toss update, settle the Toss market immediately
   if (tossWinner || pushKind === "toss") {
     await settleTossMarket(matchId, tossWinner);
+    await safeEmitNotification("TOSS_RESULT", matchId, {
+      inning: 1,
+      context: { tossWinner, tossDecision },
+    });
+  }
+
+  if (computedDisplayStatus === "LIVE" && prevDisplay !== "LIVE") {
+    await safeEmitNotification("LIVE_START", matchId, {
+      inning: Number(prevRow?.ro_current_inning) || 1,
+    });
+  }
+
+  if (computedDisplayStatus === "FINISHED" && prevDisplay !== "FINISHED") {
+    await safeEmitNotification("MATCH_END", matchId, {
+      inning: Number(prevRow?.ro_current_inning) || null,
+    });
   }
 
   if (!roMatchKey) {
@@ -2732,6 +3223,27 @@ async function priceUpcomingMatches(horizonHours = 72) {
   }
 }
 
+async function emitStartingSoonNotifications(windowMinutes = 5) {
+  const now = new Date();
+  const startIso = now.toISOString();
+  const endIso = new Date(now.getTime() + windowMinutes * 60 * 1000).toISOString();
+
+  const { data: matches } = await supabase
+    .from("matches")
+    .select("id, ro_start_time, start_time, display_status")
+    .eq("display_status", "UPCOMING")
+    .or(
+      `and(ro_start_time.gte.${startIso},ro_start_time.lte.${endIso}),` +
+        `and(start_time.gte.${startIso},start_time.lte.${endIso})`
+    );
+
+  if (!matches?.length) return;
+
+  for (const m of matches) {
+    await safeEmitNotification("START_MINUS5", m.id, { inning: 1 });
+  }
+}
+
 // ======================= MAIN SERVE =======================
 serve(async (req) => {
   const preflight = handlePreflight(req);
@@ -2759,6 +3271,7 @@ serve(async (req) => {
       const hrs = Number(url.searchParams.get("horizon_hours"));
       const horizon = Number.isFinite(hrs) && hrs > 0 ? hrs : 72; // default 72h
       await priceUpcomingMatches(horizon);
+      await emitStartingSoonNotifications(5);
       return success({ success: true, mode });
     }
 
