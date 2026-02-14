@@ -95,6 +95,135 @@ const _oddsPollLast: Record<string, number> = {};
 const _squadFetchCache: Record<string, number> = {};
 // Track matches where we've already hydrated full squads (avoid repeated upserts)
 const _playersSeeded: Set<string> = new Set();
+// Track latest ball seq for match-winner pulse reopen
+const _mwLatestSeq: Record<string, string> = {};
+// Track debounce timers for reopening match winner markets
+const _mwReopenTimer: Record<string, NodeJS.Timeout> = {};
+
+// Safe number helper
+function toNum(v: any, fallback = 0) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+// Fallback: derive target as (first-innings total + 1) from ball events
+async function computeTargetFromBallEvents(matchId: string): Promise<number | null> {
+  const { data, error } = await supabase
+    .from("ball_events")
+    .select("ro_total_runs")
+    .eq("match_id", matchId)
+    .eq("ro_inning_number", 1)
+    .or("ro_is_deleted.is.null,ro_is_deleted.eq.false");
+
+  if (error) {
+    console.error("[computeTargetFromBallEvents] failed", { matchId, error });
+    return null;
+  }
+
+  const sum = (data || []).reduce((acc, row) => acc + Number(row?.ro_total_runs ?? 0), 0);
+  if (!Number.isFinite(sum) || sum <= 0) return null;
+  return sum + 1;
+}
+
+// Compute target when the provider didn't send one; do not overwrite a valid target.
+async function deriveTargetIfMissing(
+  matchId: string,
+  inningNumber: number,
+  existingTarget?: number | null,
+): Promise<number | null> {
+  const target = existingTarget ?? null;
+  if (target && target > 0) return target;
+  if (inningNumber < 2) return target;
+
+  const computed = await computeTargetFromBallEvents(matchId);
+  if (computed && computed > 0) return computed;
+  return target;
+}
+
+function extractTargetFromSnapshot(snapshot: any): { target?: number | null; firstInningsTotal?: number | null } {
+  // Prefer Roanuz play.target.runs which already includes +1 for the chase
+  const target =
+    snapshot?.play?.target?.runs ??
+    snapshot?.target_runs ??
+    snapshot?.target?.runs ??
+    snapshot?.required?.target ??
+    null;
+
+  // innings can be an object (a_1, b_1) or an array; prefer play.innings
+  const inningsNode = snapshot?.play?.innings ?? snapshot?.innings ?? snapshot?.match?.innings ?? null;
+  let firstInningsTotal: number | null = null;
+
+  if (inningsNode) {
+    if (Array.isArray(inningsNode)) {
+      const first =
+        inningsNode.find((inn: any) =>
+          Number(inn?.batting_order ?? inn?.inning_number ?? inn?.number ?? inn?.index) === 1) ||
+        inningsNode[0];
+      const runs =
+        first?.score?.runs ??
+        first?.score?.total ??
+        first?.team_score?.runs ??
+        first?.runs ??
+        first?.team_runs ??
+        null;
+      const runsNum = Number(runs);
+      if (Number.isFinite(runsNum) && runsNum > 0) firstInningsTotal = runsNum;
+    } else if (typeof inningsNode === "object") {
+      // use innings_order if present, else first key ending with "_1", else first value
+      const orderList: string[] =
+        (snapshot?.play?.innings_order as string[]) ||
+        Object.keys(inningsNode);
+      const firstKey =
+        (orderList || []).find((k) => k && String(k).includes("_1")) ||
+        Object.keys(inningsNode).find((k) => k && String(k).includes("_1")) ||
+        (orderList && orderList[0]) ||
+        Object.keys(inningsNode)[0];
+      const first = inningsNode[firstKey];
+      const runs =
+        first?.score?.runs ??
+        first?.score?.total ??
+        first?.team_score?.runs ??
+        first?.runs ??
+        first?.team_runs ??
+        null;
+      const runsNum = Number(runs);
+      if (Number.isFinite(runsNum) && runsNum > 0) firstInningsTotal = runsNum;
+    }
+  }
+
+  return { target: Number.isFinite(Number(target)) ? Number(target) : null, firstInningsTotal };
+}
+
+function extractRequiredFromSnapshot(snapshot: any): { runs?: number | null; balls?: number | null } {
+  const req =
+    snapshot?.play?.required_score ??
+    snapshot?.live?.required_score ??
+    snapshot?.required_score ??
+    snapshot?.required ??
+    null;
+  const runs = toNum(req?.runs, null);
+  const balls = toNum(req?.balls, null);
+  return { runs: Number.isFinite(runs as number) ? runs : null, balls: Number.isFinite(balls as number) ? balls : null };
+}
+
+function extractRequiredFromDetail(detail: any): { runs?: number | null; balls?: number | null } {
+  const req =
+    detail?.required_score ??
+    detail?.live?.required_score ??
+    detail?.required ??
+    null;
+  const runs = toNum(req?.runs, null);
+  const balls = toNum(req?.balls, null);
+  return { runs: Number.isFinite(runs as number) ? runs : null, balls: Number.isFinite(balls as number) ? balls : null };
+}
+
+function oversLimitFromCompetition(compType?: string | null, compName?: string | null): number | null {
+  const s = `${compType || ""} ${compName || ""}`.toLowerCase();
+  if (s.includes("t10")) return 10;
+  if (s.includes("t20") || s.includes("20/20") || s.includes("twenty20")) return 20;
+  if (s.includes("odi") || s.includes("one day") || s.includes("50")) return 50;
+  return null;
+}
 
 async function getRoanuzToken(): Promise<string> {
   if (!ROANUZ_PROJECT_KEY || !ROANUZ_API_KEY) {
@@ -403,6 +532,19 @@ function extractMatchKey(body: any): string | null {
   return candidates.length ? String(candidates[0]) : null;
 }
 
+function mapNonBallEventType(kindRaw?: string | null): { type: string; text: string } | null {
+  const k = String(kindRaw || "").toLowerCase();
+  if (!k) return null;
+  if (k.includes("review")) return { type: "review", text: "Review in progress" };
+  if (k.includes("drinks")) return { type: "drinks", text: "Drinks break" };
+  if (k.includes("rain")) return { type: "rain", text: "Rain delay" };
+  if (k.includes("light")) return { type: "bad_light", text: "Bad light – play suspended" };
+  if (k.includes("innings") && k.includes("break")) return { type: "innings_break", text: "Innings break" };
+  if (k.includes("super") && k.includes("over")) return { type: "super_over", text: "Super Over preparation" };
+  if (k.includes("status")) return { type: "status", text: "Status update" };
+  return { type: k, text: k };
+}
+
 function normalizeTeamKey(val: string | null | undefined): string {
   return String(val || "")
     .toLowerCase()
@@ -597,6 +739,313 @@ const oversToFloat = (overs?: number | null) => {
   const balls = Math.round((raw - whole) * 10);
   return whole + balls / 6;
 };
+
+// ======================= PLAYER MARKET NAMES =======================
+const MARKET_TOP_BATTER = "Top Batter";
+const MARKET_TOP_BOWLER = "Top Bowler";
+const MARKET_BEST_BATTER_INN1 = "Best Batter - Innings 1";
+const MARKET_BEST_BOWLER_INN1 = "Best Bowler - Innings 1";
+const MARKET_BEST_BATTER_INN2 = "Best Batter - Innings 2";
+const MARKET_BEST_BOWLER_INN2 = "Best Bowler - Innings 2";
+
+type PlayingXI = { home: string[]; away: string[] };
+
+function extractPlayingXIFromSnapshot(snapshot: any): PlayingXI {
+  const xiHome =
+    snapshot?.squad?.a?.playing_xi ||
+    snapshot?.match?.squad?.a?.playing_xi ||
+    snapshot?.lineups?.a?.playing_xi ||
+    [];
+  const xiAway =
+    snapshot?.squad?.b?.playing_xi ||
+    snapshot?.match?.squad?.b?.playing_xi ||
+    snapshot?.lineups?.b?.playing_xi ||
+    [];
+
+  return {
+    home: Array.isArray(xiHome) ? xiHome.map(String) : [],
+    away: Array.isArray(xiAway) ? xiAway.map(String) : [],
+  };
+}
+
+function pickTop(list: string[], count = 3) {
+  return list.filter(Boolean).slice(0, count);
+}
+
+function defaultOddsList(count: number, base = 3): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(Number((base + i * 0.8).toFixed(2)));
+  }
+  return out;
+}
+
+async function ensureMarketWithRunners(
+  matchId: string,
+  name: string,
+  runners: Array<{ key: string; name: string; order: number }>,
+  metadata: Record<string, any>,
+  status: "OPEN" | "SUSPENDED" = "OPEN",
+) {
+  // Try to find existing market
+  const { data: existing } = await supabase
+    .from("markets")
+    .select("id")
+    .eq("match_id", matchId)
+    .eq("market_name", name)
+    .maybeSingle();
+
+  let marketId = existing?.id as string | undefined;
+
+  if (!marketId) {
+    const { data: market, error: mErr } = await supabase
+      .from("markets")
+      .insert({
+        match_id: matchId,
+        market_type: "pre_match",
+        market_name: name,
+        market_status: status,
+        open_time: new Date().toISOString(),
+        metadata,
+      })
+      .select("id")
+      .single();
+
+    if (mErr || !market?.id) {
+      console.error("[player-markets] create market failed", { name, mErr });
+      return;
+    }
+    marketId = market.id;
+  }
+
+  // Seed runners (upsert by market_id + ro_player_key)
+  const oddsList = defaultOddsList(runners.length, 3.0);
+  const rows = runners.map((r, idx) => ({
+    market_id: marketId!,
+    runner_name: r.name || r.key,
+    ro_player_key: r.key,
+    back_odds: oddsList[idx] ?? 5.0,
+    lay_odds: null,
+    metadata: { order: r.order, kind: metadata.kind, inning: metadata.inning, team: metadata.team },
+  }));
+
+  await supabase.from("market_runners").upsert(rows, {
+    onConflict: "market_id,ro_player_key",
+    ignoreDuplicates: false,
+  });
+}
+
+async function ensureBestPlayerMarketsPreStart(
+  matchId: string,
+  snapshot: any,
+  teamKeys: { homeKey: string | null; awayKey: string | null },
+  _teamNames: { home: string; away: string },
+  tossDecision: { battingFirstKey: string | null; bowlingFirstKey: string | null },
+) {
+  const xi = extractPlayingXIFromSnapshot(snapshot);
+
+  const battingFirst = tossDecision.battingFirstKey || teamKeys.homeKey;
+  const bowlingFirst = tossDecision.bowlingFirstKey || teamKeys.awayKey;
+
+  const battingXI = battingFirst === teamKeys.homeKey ? xi.home : xi.away;
+  const bowlingXI = bowlingFirst === teamKeys.homeKey ? xi.home : xi.away;
+
+  const topBattersInn1 = pickTop(battingXI, 3);
+  const topBowlersInn1 = pickTop(bowlingXI.slice().reverse(), 3); // heuristic: tail has frontline bowlers
+
+  // Match-wide markets: include all XI so settlement is fair
+  const allBatters = [...xi.home, ...xi.away].map((k, i) => ({ key: k, name: k, order: i }));
+  const allBowlers = [...xi.home, ...xi.away].map((k, i) => ({ key: k, name: k, order: i }));
+
+  await ensureMarketWithRunners(matchId, MARKET_TOP_BATTER, allBatters, { kind: "TOP_BATTER", scope: "MATCH" });
+  await ensureMarketWithRunners(matchId, MARKET_TOP_BOWLER, allBowlers, { kind: "TOP_BOWLER", scope: "MATCH" });
+
+  await ensureMarketWithRunners(
+    matchId,
+    MARKET_BEST_BATTER_INN1,
+    topBattersInn1.map((k, idx) => ({ key: k, name: k, order: idx })),
+    { kind: "BEST_BATTER", inning: 1, team: battingFirst },
+  );
+
+  await ensureMarketWithRunners(
+    matchId,
+    MARKET_BEST_BOWLER_INN1,
+    topBowlersInn1.map((k, idx) => ({ key: k, name: k, order: idx })),
+    { kind: "BEST_BOWLER", inning: 1, team: bowlingFirst },
+  );
+}
+
+async function ensureInnings2Markets(
+  matchId: string,
+  snapshot: any,
+  teamKeys: { homeKey: string | null; awayKey: string | null },
+) {
+  const xi = extractPlayingXIFromSnapshot(snapshot);
+  const battingSecond = snapshot?.match?.second_batting_team_key || snapshot?.second_batting_team_key || null;
+
+  const inferredSecondBat = battingSecond
+    ? String(battingSecond)
+    : teamKeys.homeKey && teamKeys.awayKey
+    ? null
+    : null;
+
+  const battingXI = inferredSecondBat === teamKeys.homeKey ? xi.home : inferredSecondBat === teamKeys.awayKey ? xi.away : xi.away;
+  const bowlingXI = inferredSecondBat === teamKeys.homeKey ? xi.away : xi.home;
+
+  const topBat = pickTop(battingXI, 3).map((k, idx) => ({ key: k, name: k, order: idx }));
+  const topBowl = pickTop(bowlingXI.slice().reverse(), 3).map((k, idx) => ({ key: k, name: k, order: idx }));
+
+  await ensureMarketWithRunners(matchId, MARKET_BEST_BATTER_INN2, topBat, { kind: "BEST_BATTER", inning: 2, team: battingSecond });
+  await ensureMarketWithRunners(matchId, MARKET_BEST_BOWLER_INN2, topBowl, { kind: "BEST_BOWLER", inning: 2, team: bowlingXI === xi.home ? teamKeys.awayKey : teamKeys.homeKey });
+}
+
+async function closePlayerMarketsOnFirstBall(matchId: string, inning: number) {
+  const namesToClose = inning === 1
+    ? [MARKET_TOP_BATTER, MARKET_TOP_BOWLER, MARKET_BEST_BATTER_INN1, MARKET_BEST_BOWLER_INN1]
+    : [MARKET_BEST_BATTER_INN2, MARKET_BEST_BOWLER_INN2];
+
+  await supabase
+    .from("markets")
+    .update({ market_status: "CLOSED", close_time: new Date().toISOString() })
+    .eq("match_id", matchId)
+    .in("market_name", namesToClose)
+    .eq("market_status", "OPEN");
+}
+
+async function aggregateInningStats(matchId: string, inning: number) {
+  const { data: balls } = await supabase
+    .from("ball_events")
+    .select("ro_batsman_key, ro_bowler_key, ro_batsman_runs, ro_extras_runs, ro_total_runs, ro_is_wicket, ro_wicket_kind, ro_extra_type")
+    .eq("match_id", matchId)
+    .eq("ro_inning_number", inning)
+    .eq("ro_is_deleted", false);
+
+  const bat: Record<string, { runs: number; balls: number }> = {};
+  const bowl: Record<string, { wickets: number; runs: number; balls: number }> = {};
+
+  for (const b of balls || []) {
+    const batKey = b.ro_batsman_key || null;
+    const bowlKey = b.ro_bowler_key || null;
+    const runsBat = Number(b.ro_batsman_runs || 0);
+    const runsTotal = Number(b.ro_total_runs || 0);
+    const extraType = String(b.ro_extra_type || "").toLowerCase();
+    const legal = extraType !== "wide" && extraType !== "no_ball";
+
+    if (batKey) {
+      if (!bat[batKey]) bat[batKey] = { runs: 0, balls: 0 };
+      bat[batKey].runs += runsBat;
+      if (legal) bat[batKey].balls += 1;
+    }
+
+    if (bowlKey) {
+      if (!bowl[bowlKey]) bowl[bowlKey] = { wickets: 0, runs: 0, balls: 0 };
+      bowl[bowlKey].runs += runsTotal;
+      if (legal) bowl[bowlKey].balls += 1;
+
+      const wk = (b.ro_wicket_kind || "").toLowerCase();
+      const isRunOut = wk.includes("run out");
+      if (b.ro_is_wicket && !isRunOut) bowl[bowlKey].wickets += 1;
+    }
+  }
+
+  return { bat, bowl };
+}
+
+function topByRuns(bat: Record<string, { runs: number; balls: number }>): string[] {
+  return Object.entries(bat)
+    .sort((a, b) => {
+      if (b[1].runs !== a[1].runs) return b[1].runs - a[1].runs;
+      return a[1].balls - b[1].balls;
+    })
+    .map((x) => x[0]);
+}
+
+function topByWickets(bowl: Record<string, { wickets: number; runs: number; balls: number }>): string[] {
+  return Object.entries(bowl)
+    .sort((a, b) => {
+      if (b[1].wickets !== a[1].wickets) return b[1].wickets - a[1].wickets;
+      if (a[1].runs !== b[1].runs) return a[1].runs - b[1].runs;
+      return a[1].balls - b[1].balls;
+    })
+    .map((x) => x[0]);
+}
+
+async function settlePlayerMarket(matchId: string, marketName: string, winnerKeys: string[]) {
+  if (!winnerKeys.length) return;
+
+  const { data: market } = await supabase
+    .from("markets")
+    .select("id, market_status")
+    .eq("match_id", matchId)
+    .eq("market_name", marketName)
+    .maybeSingle();
+
+  if (!market?.id || market.market_status === "SETTLED") return;
+
+  const { data: runners } = await supabase
+    .from("market_runners")
+    .select("id, runner_name, ro_player_key")
+    .eq("market_id", market.id);
+
+  const winnerRunner = (runners || []).find((r) => r.ro_player_key && winnerKeys.includes(String(r.ro_player_key)));
+  if (!winnerRunner) return;
+
+  const winningOutcome = winnerRunner.runner_name;
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("markets")
+    .update({
+      market_status: "SETTLED",
+      winning_outcome: winningOutcome,
+      settle_time: nowIso,
+      close_time: nowIso,
+      updated_at: nowIso,
+    })
+    .eq("id", market.id);
+
+  // Reuse settleMarketBets for traditional bets if available
+  await settleMarketBets(market.id, winningOutcome);
+}
+
+async function settleInningPlayerMarkets(matchId: string, inning: number) {
+  const { bat, bowl } = await aggregateInningStats(matchId, inning);
+
+  const bestBat = topByRuns(bat)[0] ? [topByRuns(bat)[0]] : [];
+  const bestBowl = topByWickets(bowl)[0] ? [topByWickets(bowl)[0]] : [];
+
+  if (inning === 1) {
+    await settlePlayerMarket(matchId, MARKET_BEST_BATTER_INN1, bestBat);
+    await settlePlayerMarket(matchId, MARKET_BEST_BOWLER_INN1, bestBowl);
+  } else if (inning === 2) {
+    await settlePlayerMarket(matchId, MARKET_BEST_BATTER_INN2, bestBat);
+    await settlePlayerMarket(matchId, MARKET_BEST_BOWLER_INN2, bestBowl);
+  }
+}
+
+async function settleMatchPlayerMarkets(matchId: string) {
+  const { bat, bowl } = await aggregateInningStats(matchId, 1);
+  const { bat: bat2, bowl: bowl2 } = await aggregateInningStats(matchId, 2);
+
+  // merge innings
+  for (const [k, v] of Object.entries(bat2)) {
+    if (!bat[k]) bat[k] = { runs: 0, balls: 0 };
+    bat[k].runs += v.runs;
+    bat[k].balls += v.balls;
+  }
+  for (const [k, v] of Object.entries(bowl2)) {
+    if (!bowl[k]) bowl[k] = { wickets: 0, runs: 0, balls: 0 };
+    bowl[k].wickets += v.wickets;
+    bowl[k].runs += v.runs;
+    bowl[k].balls += v.balls;
+  }
+
+  const bestBat = topByRuns(bat)[0] ? [topByRuns(bat)[0]] : [];
+  const bestBowl = topByWickets(bowl)[0] ? [topByWickets(bowl)[0]] : [];
+
+  await settlePlayerMarket(matchId, MARKET_TOP_BATTER, bestBat);
+  await settlePlayerMarket(matchId, MARKET_TOP_BOWLER, bestBowl);
+}
 
 async function fetchMatchWinnerOdds(
   matchId: string,
@@ -1056,7 +1505,6 @@ async function lookupPlayerName(roPlayerKey: string | null | undefined) {
 }
 
 
-
 async function handleBallEvent(body: any) {
   const data = body?.data || body;
   const roMatchKey = extractMatchKey(body) || extractMatchKey(data);
@@ -1094,21 +1542,40 @@ async function handleBallEvent(body: any) {
     return success({ success: true, matchId, roMatchKey, ballKey, isDeleted: true });
   }
 
+  // Fetch previous match row (for derived fields and fallbacks)
+  const { data: prevRow, error: prevErr } = await supabase
+    .from("matches")
+    .select(
+      "ro_score_runs, ro_score_wickets, ro_score_overs, ro_target_runs, ro_current_inning, ro_competition_type, ro_competition_name",
+    )
+    .eq("id", matchId)
+    .maybeSingle();
+  if (prevErr) {
+    throw new ApiError(`Failed to read match snapshot: ${prevErr.message}`, 500);
+  }
+
   // ---- Over / Ball-in-over ----
   // detail.overs = [overNumber, ballInOver] (example: [12, 6] means 12.6)
   const oversArr = Array.isArray(detail?.overs) ? detail.overs : null;
   const overNumber = Number(
     oversArr?.[0] ?? ball?.over ?? ball?.over_number ?? data?.over_number ?? 0,
   );
-  const ballInOver = Number(
+  const ballInOverRaw = Number(
     oversArr?.[1] ?? ball?.ball_in_over ?? data?.ball_in_over ?? 0,
+  );
+  // Normalize to 1-6 so we never store 0 and avoid client-side jumps
+  const ballInOver = Math.max(
+    1,
+    Math.min(6, Number.isFinite(ballInOverRaw) ? ballInOverRaw : 1),
   );
 
   // ---- Inning number (CRITICAL FIX) ----
   // For limited-overs, match innings order is ball.batting_order (1 or 2)
   // detail.innings like "b_1" is team innings index, not match innings (both teams can have "_1").
   const inningNumber = (() => {
-    const bo = Number(ball?.batting_order ?? data?.ball?.batting_order ?? NaN);
+    const bo = Number(
+      ball?.batting_order ?? data?.ball?.batting_order ?? NaN,
+    );
     if (Number.isFinite(bo) && bo > 0) return bo;
 
     // Fallback: Test-like suffix a_2/b_2 (only useful when present)
@@ -1120,16 +1587,36 @@ async function handleBallEvent(body: any) {
     return 1;
   })();
 
+  // Close relevant player markets on first legal ball of an innings
+  if (ballInOver === 1) {
+    await closePlayerMarketsOnFirstBall(matchId, inningNumber);
+  }
+
   const subBallNumber = Number(ball?.sub_ball_number ?? 0);
 
   // ---- Runs (PER BALL) ----
   // In detail push: batsman.runs is runs off bat for that delivery; team_score.extras is extras for that delivery.
-  const batsmanRuns = Number(detail?.batsman?.runs ?? 0);
-  const extrasRuns = Number(detail?.team_score?.extras ?? 0);
-  const totalRuns = batsmanRuns + extrasRuns;
+  // Runs: prefer detailed fields, fallback to generic detail.runs node
+  const runsNode = detail?.runs || detail?.run || null;
+  const batsmanRuns = Number(
+    detail?.batsman?.runs ??
+      runsNode?.batsman ??
+      runsNode?.batsmen ??
+      runsNode?.batter ??
+      0,
+  );
+  const extrasRuns = Number(
+    detail?.team_score?.extras ??
+      runsNode?.extras ??
+      0,
+  );
+  const totalRuns = Number(
+    detail?.team_score?.runs ??
+      runsNode?.total ??
+      batsmanRuns + extrasRuns,
+  );
 
   // ---- Players ----
-  // Roanuz payloads vary; grab as many shapes as possible so keys/names are never lost.
   const strikerKey =
     detail?.batsman?.player_key ??
     detail?.batsman?.key ??
@@ -1137,8 +1624,12 @@ async function handleBallEvent(body: any) {
     detail?.batsman_id ??
     detail?.batsman_key ??
     detail?.batsman?.player_id ??
+    detail?.striker?.player_key ??
+    detail?.striker?.key ??
+    detail?.striker?.id ??
+    detail?.striker_id ??
+    detail?.striker_key ??
     null;
- 
 
   const nonStrikerKey =
     detail?.non_striker?.player_key ??
@@ -1149,6 +1640,7 @@ async function handleBallEvent(body: any) {
     detail?.nonStrikerKey ??
     detail?.non_striker?.player_id ??
     null;
+
   const bowlerKey =
     detail?.bowler?.player_key ??
     detail?.bowler?.key ??
@@ -1157,17 +1649,21 @@ async function handleBallEvent(body: any) {
     detail?.bowler_key ??
     detail?.bowler?.player_id ??
     null;
-  
-await ensurePlayersForMatch(roMatchKey, [strikerKey, nonStrikerKey, bowlerKey]);
 
-const strikerNameFinal =
-  (await lookupPlayerName(strikerKey)) ?? (strikerKey ? String(strikerKey) : null);
+  // Seed players (names in players table) for this match
+  await ensurePlayersForMatch(roMatchKey, [strikerKey, nonStrikerKey, bowlerKey]);
 
-const nonStrikerNameFinal =
-  (await lookupPlayerName(nonStrikerKey)) ?? (nonStrikerKey ? String(nonStrikerKey) : null);
+  const strikerNameFinal =
+    (await lookupPlayerName(strikerKey)) ??
+    (strikerKey ? String(strikerKey) : null);
 
-const bowlerNameFinal =
-  (await lookupPlayerName(bowlerKey)) ?? (bowlerKey ? String(bowlerKey) : null);
+  const nonStrikerNameFinal =
+    (await lookupPlayerName(nonStrikerKey)) ??
+    (nonStrikerKey ? String(nonStrikerKey) : null);
+
+  const bowlerNameFinal =
+    (await lookupPlayerName(bowlerKey)) ??
+    (bowlerKey ? String(bowlerKey) : null);
 
   // ---- Wicket ----
   const wicket = detail?.wicket ?? null;
@@ -1184,17 +1680,34 @@ const bowlerNameFinal =
       : wicket?.fielder?.name ?? null;
 
   // ---- Legal delivery heuristic ----
-  const rawBallType = String(detail?.ball_type ?? "").toLowerCase();
-  // Treat explicit extras only when type is provided; "normal"/"" means no extra
+  // Normalize ball_type / extra_type to catch variants like "no ball", "no-ball", "wide ball"
+  const rawBallType = String(detail?.ball_type ?? detail?.extra_type ?? "")
+    .toLowerCase()
+    .replace(/[-\s]+/g, "_");
+
   const extraType = (() => {
     if (!rawBallType || rawBallType === "normal") return null;
-    if (rawBallType === "wide") return "wide";
-    if (rawBallType === "no_ball" || rawBallType === "noball" || rawBallType === "nb") return "no_ball";
+    if (rawBallType.startsWith("wide")) return "wide";
+    if (
+      rawBallType === "no_ball" ||
+      rawBallType === "noball" ||
+      rawBallType === "nb"
+    ) {
+      return "no_ball";
+    }
     if (rawBallType === "bye") return "bye";
-    if (rawBallType === "leg_bye" || rawBallType === "legbye" || rawBallType === "lb") return "leg_bye";
+    if (
+      rawBallType === "leg_bye" ||
+      rawBallType === "legbye" ||
+      rawBallType === "lb"
+    ) {
+      return "leg_bye";
+    }
     return rawBallType;
   })();
-  const isLegalDelivery = !(extraType === "wide" || extraType === "no_ball");
+  const isLegalDelivery = !(
+    extraType === "wide" || extraType === "no_ball"
+  );
 
   const normalizedBall: any = {
     match_id: matchId,
@@ -1223,7 +1736,6 @@ const bowlerNameFinal =
     ro_bowler_key: bowlerKey ? String(bowlerKey) : null,
     ro_non_striker_key: nonStrikerKey ? String(nonStrikerKey) : null,
 
-    // store names if present, otherwise persist the key so UI always has a label
     ro_batsman_name: strikerNameFinal,
     ro_non_striker_name: nonStrikerNameFinal,
     ro_bowler_name: bowlerNameFinal,
@@ -1242,150 +1754,403 @@ const bowlerNameFinal =
       ignoreDuplicates: false,
     });
 
-  if (upsertErr) throw new ApiError(`Failed to upsert ball: ${upsertErr.message}`, 500);
+  if (upsertErr) {
+    throw new ApiError(`Failed to upsert ball: ${upsertErr.message}`, 500);
+  }
 
-  // ---- Match update: score + inning + overs (FIX) ----
-  // We parse detail.display_score like: "110/3 in 12.6 overs"
-  function parseDisplayScore(s: string): { runs?: number; wickets?: number; overs?: number } {
-    const str = String(s || "").trim();
-    if (!str) return {};
-
-    // common: "110/3 in 12.6 overs"
-    const m1 = str.match(/(\d+)\s*\/\s*(\d+)\s*in\s*([\d.]+)\s*overs?/i);
-    if (m1) {
-      const runs = Number(m1[1]);
-      const wickets = Number(m1[2]);
-      const overs = Number(m1[3]);
-      return {
-        runs: Number.isFinite(runs) ? runs : undefined,
-        wickets: Number.isFinite(wickets) ? wickets : undefined,
-        overs: Number.isFinite(overs) ? overs : undefined,
-      };
+  // Fire-and-forget background processing so webhook responds immediately
+  const sideEffects = (async () => {
+    // Pulse-suspend Match Winner on legal deliveries, reopen after odds refresh/timeout
+    if (normalizedBall.ro_is_legal_delivery !== false && roMatchKey) {
+      const seq = `${inningNumber}-${overNumber}-${ballInOver}-${Date.now()}`;
+      _mwLatestSeq[matchId] = seq;
+      await suspendMatchWinner(matchId);
+      reopenMatchWinnerWithOdds(matchId, roMatchKey, seq);
     }
 
-    // fallback: "110/3 (12.6)" or other minimal variants
-    const m2 = str.match(/(\d+)\s*\/\s*(\d+).*?([\d.]+)\s*(?:ov|overs|\))/i);
-    if (m2) {
-      const runs = Number(m2[1]);
-      const wickets = Number(m2[2]);
-      const overs = Number(m2[3]);
-      return {
-        runs: Number.isFinite(runs) ? runs : undefined,
-        wickets: Number.isFinite(wickets) ? wickets : undefined,
-        overs: Number.isFinite(overs) ? overs : undefined,
-      };
-    }
+    // ---- Match update: score + inning + overs ----
+    function parseDisplayScore(
+      s: string,
+    ): { runs?: number; wickets?: number; overs?: number } {
+      const str = String(s || "").trim();
+      if (!str) return {};
 
-    return {};
-  }
-
-  // Fill batting/bowling team keys from detail.batting_team: "a" or "b"
-  // We need home/away keys from matches row.
-  let homeKey: string | null = null;
-  let awayKey: string | null = null;
-  let prevInning: number | null = null;
-  let prevDisplay: string | null = null;
-
-  {
-    const { data: mrow, error: mErr } = await supabase
-      .from("matches")
-      .select(
-        "ro_team_home_key, ro_team_away_key, ro_current_inning, display_status"
-      )
-      .eq("id", matchId)
-      .maybeSingle();
-
-    if (mErr) throw new ApiError(`Failed to read match team keys: ${mErr.message}`, 500);
-
-    homeKey = mrow?.ro_team_home_key ? String(mrow.ro_team_home_key) : null;
-    awayKey = mrow?.ro_team_away_key ? String(mrow.ro_team_away_key) : null;
-    prevInning = Number.isFinite(Number(mrow?.ro_current_inning))
-      ? Number(mrow?.ro_current_inning)
-      : null;
-    prevDisplay = (mrow?.display_status || null) as string | null;
-  }
-
-  const matchUpdate: any = {
-    updated_at: new Date().toISOString(),
-    ro_current_inning: inningNumber,
-    ro_last_payload: data,
-    ro_status: "live",
-  };
-
-  if (detail?.display_score) {
-    const ds = String(detail.display_score);
-    matchUpdate.display_score = ds;
-
-    const parsed = parseDisplayScore(ds);
-    if (Number.isFinite(parsed.runs as number)) matchUpdate.ro_score_runs = parsed.runs;
-    if (Number.isFinite(parsed.wickets as number)) matchUpdate.ro_score_wickets = parsed.wickets;
-    if (Number.isFinite(parsed.overs as number)) matchUpdate.ro_score_overs = parsed.overs;
-  }
-
-  // batting/bowling team keys based on "a"/"b"
-  const battingTeamAb = String(detail?.batting_team ?? "").toLowerCase();
-  if (battingTeamAb === "a") {
-    if (homeKey) matchUpdate.ro_batting_team_key = homeKey;
-    if (awayKey) matchUpdate.ro_bowling_team_key = awayKey;
-  } else if (battingTeamAb === "b") {
-    if (awayKey) matchUpdate.ro_batting_team_key = awayKey;
-    if (homeKey) matchUpdate.ro_bowling_team_key = homeKey;
-  }
-
-  // current players (optional but useful)
-  if (strikerKey) matchUpdate.ro_striker_key = String(strikerKey);
-  if (nonStrikerKey) matchUpdate.ro_non_striker_key = String(nonStrikerKey);
-  if (bowlerKey) matchUpdate.ro_bowler_key = String(bowlerKey);
-
-  matchUpdate.display_status = computeDisplayStatus(matchUpdate.ro_status, undefined, undefined, "LIVE");
-
-  const { error: muErr } = await supabase.from("matches").update(matchUpdate).eq("id", matchId);
-  if (muErr) throw new ApiError(`Failed to update match: ${muErr.message}`, 500);
-
-  // ---- Instance market pipeline ----
-  await settleInstanceMarkets(matchId, inningNumber, overNumber, ballInOver, normalizedBall);
-  await closeStaleInstanceMarkets(matchId, inningNumber, overNumber, ballInOver);
-  await scheduleNextBallMarket(matchId, inningNumber, overNumber, ballInOver);
-
-  await settleNextOverMarketsIfOverComplete(matchId, inningNumber, overNumber, ballInOver);
-  await createNextOverMarketsIfOverComplete(matchId, inningNumber, overNumber, ballInOver);
-
-  // Wicket method pipeline
-  if (normalizedBall.ro_is_wicket) {
-    await createNextWicketMethodMarket(matchId, inningNumber, overNumber);
-  } else {
-    // ensure a market exists early in the innings
-    await createNextWicketMethodMarket(matchId, inningNumber, overNumber);
-  }
-
-  // ---- Notification pipeline (non-blocking) ----
-  await emitBallNotifications({
-    matchId,
-    inningNumber,
-    overNumber,
-    ballInOver,
-    prevInning,
-    prevDisplay,
-  });
-
-  // ---- Kick off live odds refresh (non-blocking, debounced per match) ----
-  // Roanuz snapshot carries bet_odds/result_prediction; we poll it after balls.
-  const now = Date.now();
-  const last = _oddsPollLast[matchId] || 0;
-  const MIN_GAP_MS = 10_000; // adjust if you want tighter/faster
-  if (roMatchKey && now - last > MIN_GAP_MS) {
-    _oddsPollLast[matchId] = now;
-    (async () => {
-      try {
-        await syncMatchWinnerOddsFromLiveApi(matchId, roMatchKey);
-      } catch (err) {
-        console.error("[live-odds-refresh] failed", { matchId, roMatchKey, err });
+      // common: "110/3 in 12.6 overs"
+      const m1 = str.match(
+        /(\d+)\s*\/\s*(\d+)\s*in\s*([\d.]+)\s*overs?/i,
+      );
+      if (m1) {
+        const runs = Number(m1[1]);
+        const wickets = Number(m1[2]);
+        const overs = Number(m1[3]);
+        return {
+          runs: Number.isFinite(runs) ? runs : undefined,
+          wickets: Number.isFinite(wickets) ? wickets : undefined,
+          overs: Number.isFinite(overs) ? overs : undefined,
+        };
       }
+
+      // fallback: "110/3 (12.6)" or other minimal variants
+      const m2 = str.match(
+        /(\d+)\s*\/\s*(\d+).*?([\d.]+)\s*(?:ov|overs|\))/i,
+      );
+      if (m2) {
+        const runs = Number(m2[1]);
+        const wickets = Number(m2[2]);
+        const overs = Number(m2[3]);
+        return {
+          runs: Number.isFinite(runs) ? runs : undefined,
+          wickets: Number.isFinite(wickets) ? wickets : undefined,
+          overs: Number.isFinite(overs) ? overs : undefined,
+        };
+      }
+
+      return {};
+    }
+
+    // Fill batting/bowling team keys from detail.batting_team: "a" or "b"
+    // We need home/away keys from matches row.
+    let homeKey: string | null = null;
+    let awayKey: string | null = null;
+    let prevInning: number | null = null;
+    let prevDisplay: string | null = null;
+    let prevTarget: number | null = null;
+
+    {
+      const { data: mrow, error: mErr } = await supabase
+        .from("matches")
+        .select(
+          "ro_team_home_key, ro_team_away_key, ro_current_inning, display_status, ro_target_runs, ro_competition_type, ro_competition_name",
+        )
+        .eq("id", matchId)
+        .maybeSingle();
+
+      if (mErr) {
+        throw new ApiError(
+          `Failed to read match team keys: ${mErr.message}`,
+          500,
+        );
+      }
+
+      homeKey = mrow?.ro_team_home_key
+        ? String(mrow.ro_team_home_key)
+        : null;
+      awayKey = mrow?.ro_team_away_key
+        ? String(mrow.ro_team_away_key)
+        : null;
+      prevInning = Number.isFinite(Number(mrow?.ro_current_inning))
+        ? Number(mrow?.ro_current_inning)
+        : null;
+      prevDisplay = (mrow?.display_status || null) as string | null;
+      prevTarget = Number.isFinite(Number(mrow?.ro_target_runs))
+        ? Number(mrow?.ro_target_runs)
+        : null;
+    }
+
+    // Build base match update (including previous target if any)
+    const matchUpdate: any = {
+      updated_at: new Date().toISOString(),
+      ro_current_inning: inningNumber,
+      ro_last_payload: data,
+      ro_status: "live",
+    };
+
+    // ✅ Preserve existing target if already set
+    if (prevTarget && prevTarget > 0) {
+      matchUpdate.ro_target_runs = prevTarget;
+    }
+
+    if (detail?.display_score) {
+      const ds = String(detail.display_score);
+      matchUpdate.display_score = ds;
+
+      const parsed = parseDisplayScore(ds);
+      if (Number.isFinite(parsed.runs as number)) {
+        matchUpdate.ro_score_runs = parsed.runs;
+      }
+      if (Number.isFinite(parsed.wickets as number)) {
+        matchUpdate.ro_score_wickets = parsed.wickets;
+      }
+      if (Number.isFinite(parsed.overs as number)) {
+        matchUpdate.ro_score_overs = parsed.overs;
+      }
+    }
+
+    // batting/bowling team keys based on "a"/"b"
+    const battingTeamAb = String(detail?.batting_team ?? "").toLowerCase();
+    if (battingTeamAb === "a") {
+      if (homeKey) matchUpdate.ro_batting_team_key = homeKey;
+      if (awayKey) matchUpdate.ro_bowling_team_key = awayKey;
+    } else if (battingTeamAb === "b") {
+      if (awayKey) matchUpdate.ro_batting_team_key = awayKey;
+      if (homeKey) matchUpdate.ro_bowling_team_key = homeKey;
+    }
+
+    // current players (optional but useful)
+    if (strikerKey) matchUpdate.ro_striker_key = String(strikerKey);
+    if (nonStrikerKey) matchUpdate.ro_non_striker_key = String(nonStrikerKey);
+    if (bowlerKey) matchUpdate.ro_bowler_key = String(bowlerKey);
+
+    matchUpdate.display_status = computeDisplayStatus(
+      matchUpdate.ro_status,
+      undefined,
+      undefined,
+      "LIVE",
+    );
+
+    // ✅ Target derivation as soon as second innings is underway
+    if (inningNumber >= 2) {
+      let ensuredTarget = await deriveTargetIfMissing(
+        matchId,
+        inningNumber,
+        matchUpdate.ro_target_runs ?? prevTarget,
+      );
+
+      if (!ensuredTarget || ensuredTarget <= 0) {
+        // Provider snapshot fallback on first ball(s) of second innings
+        try {
+          const snap = await fetchRoanuzMatchSnapshot(roMatchKey);
+          const { target: snapTarget, firstInningsTotal } = extractTargetFromSnapshot(snap);
+          if (Number.isFinite(snapTarget) && snapTarget! > 0) {
+            ensuredTarget = snapTarget!;
+          } else if (Number.isFinite(firstInningsTotal) && firstInningsTotal! > 0) {
+            ensuredTarget = firstInningsTotal! + 1;
+          }
+        } catch (err) {
+          console.error("[target-fallback] snapshot fetch failed", {
+            matchId,
+            roMatchKey,
+            err,
+          });
+        }
+      }
+
+      if (!ensuredTarget || ensuredTarget <= 0) {
+        const computed = await computeTargetFromBallEvents(matchId);
+        if (computed && computed > 0) ensuredTarget = computed;
+      }
+
+      if (ensuredTarget && ensuredTarget > 0) {
+        matchUpdate.ro_target_runs = ensuredTarget;
+      }
+    }
+
+    // Required runs/balls from detail (if present)
+    const { runs: reqRunsDetail, balls: reqBallsDetail } = extractRequiredFromDetail(detail);
+    if (Number.isFinite(reqRunsDetail as number)) matchUpdate.ro_required_runs = reqRunsDetail;
+    if (Number.isFinite(reqBallsDetail as number)) matchUpdate.ro_required_balls = reqBallsDetail;
+
+    // Derive required runs/balls from parsed score when target and overs are known
+    const parsedRuns = toNum(matchUpdate.ro_score_runs ?? prevRow?.ro_score_runs, null);
+    const targetForReq = matchUpdate.ro_target_runs ?? prevTarget ?? null;
+    const parsedOvers = toNum(matchUpdate.ro_score_overs ?? prevRow?.ro_score_overs, null);
+    const oversCap = oversLimitFromCompetition(
+      (prevRow as any)?.ro_competition_type,
+      (prevRow as any)?.ro_competition_name,
+    ) ?? 20;
+    if (
+      targetForReq != null &&
+      parsedRuns != null &&
+      parsedRuns <= targetForReq &&
+      Number.isFinite(parsedOvers) &&
+      inningNumber >= 2
+    ) {
+      const runsNeeded = Math.max(0, targetForReq - parsedRuns);
+      const whole = Math.floor(parsedOvers);
+      const frac = Math.round((parsedOvers - whole) * 10); // 16.4 => ball index 4
+      const ballsBowled = whole * 6 + frac;
+      const ballsRemaining = Math.max(0, oversCap * 6 - ballsBowled);
+      matchUpdate.ro_required_runs = runsNeeded;
+      matchUpdate.ro_required_balls = ballsRemaining;
+    }
+
+    // ---- Recompute live score from ball_events to avoid stale provider score ----
+    let aggRuns = matchUpdate.ro_score_runs ?? prevRow?.ro_score_runs ?? null;
+    let aggWkts = matchUpdate.ro_score_wickets ?? prevRow?.ro_score_wickets ?? null;
+    let aggLegalBalls: number | null = null;
+    try {
+      const { data: inningBalls, error: aggErr } = await supabase
+        .from("ball_events")
+        .select(
+          "ro_total_runs, ro_is_wicket, ro_is_legal_delivery",
+        )
+        .eq("match_id", matchId)
+        .eq("ro_inning_number", inningNumber)
+        .or(
+          "ro_is_deleted.is.null,ro_is_deleted.eq.false",
+        );
+
+      if (!aggErr && Array.isArray(inningBalls)) {
+        let runs = 0;
+        let wkts = 0;
+        let legal = 0;
+        for (const b of inningBalls) {
+          runs += Number(b.ro_total_runs ?? 0);
+          if (b.ro_is_wicket) wkts += 1;
+          if (b.ro_is_legal_delivery !== false) legal += 1;
+        }
+        aggRuns = runs;
+        aggWkts = wkts;
+        aggLegalBalls = legal;
+        const overNum = Math.floor(legal / 6);
+        const ballNum = legal % 6;
+        matchUpdate.ro_score_runs = runs;
+        matchUpdate.ro_score_wickets = wkts;
+        matchUpdate.ro_score_overs = Number(`${overNum}.${ballNum}`);
+      }
+    } catch (err) {
+      console.error("[score-aggregate] failed", { matchId, err });
+    }
+
+    const { error: muErr } = await supabase
+      .from("matches")
+      .update(matchUpdate)
+      .eq("id", matchId);
+    if (muErr) {
+      throw new ApiError(`Failed to update match: ${muErr.message}`, 500);
+    }
+
+    // ---- Session projections (backend-driven) ----
+    // ---- Session projections (backend-driven)
+    const runsForProj =
+      aggRuns ??
+      toNum(matchUpdate.ro_score_runs ?? prevRow?.ro_score_runs, null);
+    const wktsForProj =
+      aggWkts ??
+      toNum(matchUpdate.ro_score_wickets ?? prevRow?.ro_score_wickets, null);
+    const oversForProj = (() => {
+      if (aggLegalBalls != null) return aggLegalBalls / 6;
+      const ov = toNum(matchUpdate.ro_score_overs ?? prevRow?.ro_score_overs, null);
+      if (Number.isFinite(ov)) {
+        const whole = Math.floor(ov);
+        const fracBall = Math.round((ov - whole) * 10);
+        return whole + Math.max(0, Math.min(5, fracBall)) / 6;
+      }
+      return null;
     })();
-  }
+
+    if (
+      Number.isFinite(runsForProj) &&
+      Number.isFinite(wktsForProj) &&
+      Number.isFinite(oversForProj)
+    ) {
+      await upsertSessionProjections({
+        matchId,
+        inningNumber,
+        runs: runsForProj as number,
+        wickets: wktsForProj as number,
+        oversDecimal: oversForProj as number,
+      });
+    }
+
+    // ---- Instance market pipeline ----
+    await settleInstanceMarkets(
+      matchId,
+      inningNumber,
+      overNumber,
+      ballInOver,
+      normalizedBall,
+    );
+    await closeStaleInstanceMarkets(
+      matchId,
+      inningNumber,
+      overNumber,
+      ballInOver,
+    );
+    await scheduleNextBallMarket(
+      matchId,
+      inningNumber,
+      overNumber,
+      ballInOver,
+    );
+
+    await settleNextOverMarketsIfOverComplete(
+      matchId,
+      inningNumber,
+      overNumber,
+      ballInOver,
+    );
+    await createNextOverMarketsIfOverComplete(
+      matchId,
+      inningNumber,
+      overNumber,
+      ballInOver,
+    );
+
+    // Commented out legacy projection markets (now replaced by session_markets)
+    // await ensureProjectionMarkets(matchId, inningNumber, overNumber, ballInOver);
+    // if (ballInOver === 6) {
+    //   const completedOverHuman = overNumber + 1;
+    //   await settleProjectionMarkets(matchId, inningNumber, completedOverHuman);
+    // }
+
+    // Wicket method pipeline
+    if (normalizedBall.ro_is_wicket) {
+      await createNextWicketMethodMarket(
+        matchId,
+        inningNumber,
+        overNumber,
+      );
+    } else {
+      // ensure a market exists early in the innings
+      await createNextWicketMethodMarket(
+        matchId,
+        inningNumber,
+        overNumber,
+      );
+    }
+
+    // ---- Notification pipeline (non-blocking) ----
+    await emitBallNotifications({
+      matchId,
+      inningNumber,
+      overNumber,
+      ballInOver,
+      prevInning,
+      prevDisplay,
+    });
+
+    // Inning-end settlements and second-innings market creation
+    if (ballInOver === 6) {
+      await settleInningPlayerMarkets(matchId, inningNumber);
+      // if inning 1 ended, prepare inning 2 markets
+      if (inningNumber === 1) {
+        await ensureInnings2Markets(matchId, data, { homeKey, awayKey });
+      }
+    }
+
+    // ---- Kick off live odds refresh (non-blocking, debounced per match) ----
+    const now = Date.now();
+    const last = _oddsPollLast[matchId] || 0;
+    const MIN_GAP_MS = 10_000;
+    if (roMatchKey && now - last > MIN_GAP_MS) {
+      _oddsPollLast[matchId] = now;
+      (async () => {
+        try {
+          await syncMatchWinnerOddsFromLiveApi(matchId, roMatchKey);
+        } catch (err) {
+          console.error("[live-odds-refresh] failed", {
+            matchId,
+            roMatchKey,
+            err,
+          });
+        }
+      })();
+    }
+  })();
+
+  sideEffects.catch((err) => {
+    console.error("[ball-side-effects] failed (background)", {
+      matchId,
+      roMatchKey,
+      ballKey,
+      err,
+    });
+  });
 
   return success({ success: true, matchId, roMatchKey, ballKey });
 }
+
 
 // ======================= NON-BALL UPDATE =======================
 async function handleNonBallUpdate(body: any) {
@@ -1402,7 +2167,7 @@ async function handleNonBallUpdate(body: any) {
   const { data: prevRow } = await supabase
     .from("matches")
     .select(
-      "display_status, ro_status, toss_won_by, elected_to, toss_recorded_at, ro_current_inning"
+      "display_status, ro_status, toss_won_by, elected_to, toss_recorded_at, ro_current_inning, ro_target_runs"
     )
     .eq("id", matchId)
     .maybeSingle();
@@ -1414,12 +2179,78 @@ async function handleNonBallUpdate(body: any) {
   // Ensure squad players are cached (names for keys)
   await ensurePlayersForMatch(roMatchKey, []);
 
+  // If this is a non-ball push, log a commentary row (ordered after latest ball)
+  const kindRaw = pushKind;
+  if (kindRaw && kindRaw !== "ball") {
+    const mapped = mapNonBallEventType(kindRaw);
+    const nowIso = new Date().toISOString();
+
+    const { data: lastBall } = await supabase
+      .from("ball_events")
+      .select("ro_inning_number, ro_over_number, ro_ball_in_over, ro_sub_ball_number")
+      .eq("match_id", matchId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const inning = Number(lastBall?.ro_inning_number ?? snapshot?.live?.inning_number ?? 1);
+    const over = Number(lastBall?.ro_over_number ?? snapshot?.live?.current_over ?? 0);
+    const ball = Number(lastBall?.ro_ball_in_over ?? 0);
+    const subBall = Number(lastBall?.ro_sub_ball_number ?? 0) + 99; // ensure it appears after balls
+
+    await supabase.from("ball_events").insert({
+      match_id: matchId,
+      ro_inning_number: inning,
+      ro_over_number: over,
+      ro_ball_in_over: ball,
+      ro_sub_ball_number: subBall,
+      ro_is_deleted: false,
+      ro_is_wicket: false,
+      ro_total_runs: 0,
+      ro_batsman_runs: 0,
+      ro_extras_runs: 0,
+      ro_is_boundary: false,
+      ro_is_six: false,
+      ro_is_legal_delivery: false,
+      ro_event_type: mapped?.type ?? kindRaw,
+      ro_commentary: mapped?.text ?? kindRaw,
+      ro_raw_data: data,
+      created_at: nowIso,
+    });
+  }
+
+  // Create pre-start player markets when lineups/toss available and before first ball
+  const hasStarted = !!snapshot?.live?.recent_overs?.length || !!snapshot?.live?.current_over;
+  if (!hasStarted) {
+    const homeKey = snapshot?.match?.team_a?.key || snapshot?.team_a?.key || null;
+    const awayKey = snapshot?.match?.team_b?.key || snapshot?.team_b?.key || null;
+    const tossWinner = snapshot?.match?.toss?.winner || snapshot?.toss?.winner || null;
+    const tossDecision = (snapshot?.match?.toss?.decision || snapshot?.toss?.decision || "bat").toLowerCase();
+    const battingFirstKey = tossDecision === "bat" ? tossWinner : tossWinner === homeKey ? awayKey : homeKey;
+    const bowlingFirstKey = battingFirstKey === homeKey ? awayKey : homeKey;
+
+    await ensureBestPlayerMarketsPreStart(
+      matchId,
+      snapshot,
+      { homeKey, awayKey },
+      { home: snapshot?.match?.team_a?.name || "Home", away: snapshot?.match?.team_b?.name || "Away" },
+      { battingFirstKey, bowlingFirstKey },
+    );
+  }
+
   // Update match state fields
   const status = snapshot?.status || data?.match?.status || data?.status || "";
   const update: any = {
     updated_at: new Date().toISOString(),
     ro_last_payload: snapshot,
   };
+
+  // If match finished, settle player markets
+  if (isFinishedStatus(status)) {
+    await settleInningPlayerMarkets(matchId, 1).catch(() => null);
+    await settleInningPlayerMarkets(matchId, 2).catch(() => null);
+    await settleMatchPlayerMarkets(matchId).catch(() => null);
+  }
 
   // Prefer toss info from push payload; fallback to snapshot
   const tossPayload = extractTossInfo(data);
@@ -1463,9 +2294,26 @@ async function handleNonBallUpdate(body: any) {
   if (snapshot?.play_status) update.ro_play_status = snapshot.play_status;
   if (snapshot?.innings) update.ro_innings_summary = snapshot.innings;
 
-  // Target if present
-  const target = snapshot?.target_runs ?? snapshot?.target?.runs ?? snapshot?.required?.target ?? null;
-  if (Number.isFinite(Number(target))) update.ro_target_runs = Number(target);
+  // Target if present; fallback to innings summary first-innings total + 1
+  const { target: snapTarget, firstInningsTotal } = extractTargetFromSnapshot(snapshot);
+  const { runs: snapReqRuns, balls: snapReqBalls } = extractRequiredFromSnapshot(snapshot);
+  const prevTarget = Number.isFinite(Number(prevRow?.ro_target_runs)) ? Number(prevRow?.ro_target_runs) : null;
+  const inningFromSnapshot = Number(snapshot?.current_inning ?? snapshot?.inning ?? prevRow?.ro_current_inning ?? 1);
+
+  if (Number.isFinite(snapTarget) && snapTarget! > 0) {
+    update.ro_target_runs = Number(snapTarget);
+  } else if (Number.isFinite(firstInningsTotal) && firstInningsTotal! > 0) {
+    // Use first-innings runs from snapshot; target is runs + 1
+    update.ro_target_runs = Number(firstInningsTotal) + 1;
+  } else if (inningFromSnapshot >= 2) {
+    const computed = await deriveTargetIfMissing(matchId, inningFromSnapshot, prevTarget);
+    if (computed && computed > 0) update.ro_target_runs = computed;
+  } else if (prevTarget && prevTarget > 0) {
+    update.ro_target_runs = prevTarget;
+  }
+
+  if (Number.isFinite(snapReqRuns)) update.ro_required_runs = Number(snapReqRuns);
+  if (Number.isFinite(snapReqBalls)) update.ro_required_balls = Number(snapReqBalls);
 
   await supabase.from("matches").update(update).eq("id", matchId);
 
@@ -1683,6 +2531,45 @@ async function syncMatchWinnerOddsFromLiveApi(matchId: string, roMatchKey: strin
     }
     console.error("[syncMatchWinnerOddsFromLiveApi] failed", { matchId, roMatchKey, err });
   }
+}
+
+// Pulse-suspend Match Winner on every legal ball, then reopen after odds refresh or timeout
+async function suspendMatchWinner(matchId: string) {
+  await supabase
+    .from("markets")
+    .update({ market_status: "SUSPENDED", updated_at: new Date().toISOString() })
+    .eq("match_id", matchId)
+    .eq("market_name", "Match Winner")
+    .eq("market_status", "OPEN");
+}
+
+async function reopenMatchWinnerWithOdds(matchId: string, roMatchKey: string, seq: string) {
+  const nowIso = new Date().toISOString();
+  const timeoutMs = 1500; // faster pulse
+  const minSuspendMs = 400; // visible blink
+
+  const oddsPromise = (async () => {
+    try {
+      await syncMatchWinnerOddsFromLiveApi(matchId, roMatchKey);
+    } catch (err) {
+      console.error("[match-winner-pulse] odds refresh failed", { matchId, roMatchKey, err });
+    }
+  })();
+
+  const timeoutPromise = new Promise((resolve) => setTimeout(resolve, timeoutMs));
+  const minSuspend = new Promise((resolve) => setTimeout(resolve, minSuspendMs));
+
+  await Promise.all([Promise.race([oddsPromise, timeoutPromise]), minSuspend]);
+
+  // If a newer ball arrived, skip reopen
+  if (_mwLatestSeq[matchId] !== seq) return;
+
+  await supabase
+    .from("markets")
+    .update({ market_status: "OPEN", updated_at: nowIso })
+    .eq("match_id", matchId)
+    .eq("market_name", "Match Winner")
+    .in("market_status", ["SUSPENDED", "OPEN"]);
 }
 
 // ======================= PRE-MATCH / MODEL PRICING =======================
@@ -2890,6 +3777,7 @@ async function scheduleNextBallMarket(matchId: string, inning: number, over: num
 
 type NextOverKind = "RUNS_GT8" | "BOUNDARIES_COUNT" | "WICKET_FALL";
 type NextWicketKind = "NEXT_WICKET_METHOD";
+const PROJECTION_TARGET_OVERS = [6, 10, 15, 20];
 
 function nextOverTitle(kind: NextOverKind, overDisplay: number) {
   if (kind === "RUNS_GT8") return `Over ${overDisplay}: Runs > 8?`;
@@ -2897,6 +3785,128 @@ function nextOverTitle(kind: NextOverKind, overDisplay: number) {
   return `Over ${overDisplay}: Wicket?`;
 }
 
+// ======================= SESSION PROJECTIONS (BACKEND-DRIVEN) =======================
+function roundProjection(val: number) {
+  const half = Math.round(val * 2) / 2;
+  const endsWithZero = Math.abs(half % 1) < 1e-6;
+  const adjusted = endsWithZero ? half + 0.5 : half;
+  return Number(adjusted.toFixed(1));
+}
+
+function computeProjectionLine(
+  runs: number,
+  wickets: number,
+  oversDecimal: number,
+  targetOver: number,
+) {
+  const crr = oversDecimal > 0 ? runs / oversDecimal : 10;
+  const baseRate = 10;
+  let raw = runs;
+
+  const addSpan = (start: number, end: number, rate: number) => {
+    if (rate <= 0 || targetOver <= start) return;
+    const segStart = Math.max(oversDecimal, start);
+    const segEnd = Math.min(targetOver, end);
+    const span = segEnd - segStart;
+    if (span > 0) raw += span * rate;
+  };
+
+  // Powerplay: current rate up to 6
+  addSpan(0, 6, crr);
+  // 6-10: baseline 10 rpo
+  addSpan(6, 10, baseRate);
+
+  const threshold15 = 9 + 3 / 6; // 9.3 overs ≈ 9.5 decimal
+  const threshold20 = 14 + 3 / 6; // 14.3 overs ≈ 14.5 decimal
+
+  const rate15 = oversDecimal >= threshold15 && crr > 10 && wickets < 4 ? crr : baseRate;
+  const rate20 = oversDecimal >= threshold20 && crr > 10 && wickets < 6 ? crr : baseRate;
+
+  addSpan(10, 15, rate15);
+  addSpan(15, 20, rate20);
+
+  if (targetOver > 20) {
+    addSpan(20, targetOver, baseRate);
+  }
+
+  const remainingOvers = Math.max(0, targetOver - oversDecimal);
+  const wicketReduction = wickets * remainingOvers;
+  const adjusted = Math.max(runs, raw - wicketReduction);
+  const line = roundProjection(adjusted);
+
+  let mode: "current-rate" | "baseline-10rpo" | "hybrid-6-then-10rpo" = "baseline-10rpo";
+  if (targetOver <= 6) mode = "current-rate";
+  else if (targetOver <= 10) mode = oversDecimal < 6 ? "hybrid-6-then-10rpo" : "current-rate";
+  else if (targetOver <= 15) mode = rate15 === crr ? "current-rate" : "baseline-10rpo";
+  else if (targetOver <= 20) mode = rate20 === crr ? "current-rate" : "baseline-10rpo";
+
+  return {
+    line,
+    mode,
+    crr: Number.isFinite(crr) ? Number(crr.toFixed(2)) : null,
+    wicketReduction: Number(wicketReduction.toFixed(2)),
+    remainingOvers,
+  };
+}
+
+async function upsertSessionProjections(params: {
+  matchId: string;
+  inningNumber: number;
+  runs: number;
+  wickets: number;
+  oversDecimal: number;
+}) {
+  const { matchId, inningNumber, runs, wickets, oversDecimal } = params;
+  const nowIso = new Date().toISOString();
+
+  for (const target of PROJECTION_TARGET_OVERS) {
+    const proj = computeProjectionLine(runs, wickets, oversDecimal, target);
+    const remaining = Math.max(0, target - oversDecimal);
+    const status =
+      oversDecimal >= target ? "SETTLED" : remaining <= 2 ? "CLOSED" : "OPEN";
+
+    const payload: any = {
+      match_id: matchId,
+      inning: inningNumber,
+      target_over: target,
+      projected_line: proj.line,
+      mode: proj.mode,
+      runs,
+      wickets,
+      overs_decimal: Number(oversDecimal.toFixed(3)),
+      crr: proj.crr,
+      wicket_reduction: proj.wicketReduction,
+      status,
+      updated_at: nowIso,
+    };
+
+    if (status === "CLOSED") payload.close_time = nowIso;
+    if (status === "OPEN") payload.close_time = null;
+    if (status === "SETTLED") payload.settle_time = nowIso;
+
+    await supabase.from("session_markets").upsert(payload, {
+      onConflict: "match_id, inning, target_over",
+    });
+
+    // Keep underlying OVER_PROJECTION instance market aligned for betting window
+    const { data: im } = await supabase
+      .from("instance_markets")
+      .select("id, market_status")
+      .eq("match_id", matchId)
+      .eq("instance_type", "OVER_PROJECTION")
+      .eq("ro_inning_number", inningNumber)
+      .eq("ro_over_number", target - 1) // stored as target_over - 1
+      .maybeSingle();
+
+    if (im?.id) {
+      const desiredStatus = status; // OPEN until <=2 overs, then CLOSED/SETTLED handled upstream
+      const updates: any = { market_status: desiredStatus, updated_at: nowIso };
+      if (desiredStatus === "CLOSED") updates.close_time = nowIso;
+      if (desiredStatus === "OPEN") updates.close_time = null;
+      await supabase.from("instance_markets").update(updates).eq("id", im.id);
+    }
+  }
+}
 async function createNextOverMarketsIfOverComplete(matchId: string, inning: number, over: number, ballInOver: number) {
   if (ballInOver !== 6) return;
 
@@ -3051,6 +4061,147 @@ async function settleNextOverMarketsIfOverComplete(matchId: string, inning: numb
     }).eq("id", m.id);
 
     await settleMarketBets(m.id, winningOutcome);
+  }
+}
+
+// ======================= PROJECTION MARKETS (RUNS AFTER N OVERS) =======================
+async function getInningRuns(matchId: string, inning: number) {
+  const { data: balls } = await supabase
+    .from("ball_events")
+    .select("ro_total_runs")
+    .eq("match_id", matchId)
+    .eq("ro_inning_number", inning)
+    .eq("ro_is_deleted", false);
+
+  return (balls || []).reduce((s: number, b: any) => s + Number(b.ro_total_runs || 0), 0);
+}
+
+function projectedLineForTarget(currentRuns: number, currentOver: number, currentBall: number, targetOver: number) {
+  const legalBalls = currentOver * 6 + currentBall;
+  const oversBowled = legalBalls / 6;
+  const rr = oversBowled > 0 ? currentRuns / oversBowled : 8; // fallback 8 rpo
+  const projection = rr * targetOver;
+  // round to nearest 2 runs to keep line tidy
+  return Math.max(0, Math.round(projection / 2) * 2);
+}
+
+async function ensureProjectionMarkets(
+  matchId: string,
+  inning: number,
+  currentOver: number,
+  currentBall: number,
+) {
+  const runsSoFar = await getInningRuns(matchId, inning);
+
+  for (const target of PROJECTION_TARGET_OVERS) {
+    // Create if missing
+    const { data: existing } = await supabase
+      .from("instance_markets")
+      .select("id, market_status, metadata")
+      .eq("match_id", matchId)
+      .eq("instance_type", "OVER_PROJECTION")
+      .eq("ro_inning_number", inning)
+      .eq("ro_over_number", target - 1)
+      .maybeSingle();
+
+    const line = projectedLineForTarget(runsSoFar, currentOver, currentBall, target);
+    const closeNow = currentOver + 1 >= target - 2; // close 2 overs before target
+
+    if (!existing) {
+      const { data: market, error: mErr } = await supabase
+        .from("instance_markets")
+        .insert({
+          match_id: matchId,
+          instance_type: "OVER_PROJECTION",
+          market_title: `Runs after ${target} overs ≥ ${line}?`,
+          ro_inning_number: inning,
+          ro_over_number: target - 1,
+          ro_ball_number: 0,
+          open_time: new Date().toISOString(),
+          close_time: new Date(Date.now() + 60_000).toISOString(),
+          market_status: closeNow ? "CLOSED" : "OPEN",
+          metadata: { kind: "PROJECTION", target_over: target, line },
+        })
+        .select("id")
+        .single();
+
+      if (mErr || !market?.id) {
+        console.error("Failed to create OVER_PROJECTION market:", mErr);
+        continue;
+      }
+
+      const outcomes = [
+        { outcome_name: "Yes", outcome_type: "FLAG", outcome_value: "yes", back_odds: 1.9 },
+        { outcome_name: "No", outcome_type: "FLAG", outcome_value: "no", back_odds: 1.9 },
+      ].map((o) => ({
+        market_id: market.id,
+        outcome_name: o.outcome_name,
+        outcome_type: o.outcome_type,
+        outcome_value: o.outcome_value,
+        back_odds: o.back_odds,
+        probability: Number((1 / o.back_odds).toFixed(6)),
+        created_at: new Date().toISOString(),
+      }));
+
+      await supabase.from("instance_outcomes").insert(outcomes);
+    } else {
+      // update line + status if needed
+      const meta = existing.metadata || {};
+      const needsLine = Number(meta.line) !== line;
+      const needsClose = closeNow && existing.market_status === "OPEN";
+      if (needsLine || needsClose) {
+        await supabase
+          .from("instance_markets")
+          .update({
+            market_status: needsClose ? "CLOSED" : existing.market_status,
+            metadata: { ...meta, line },
+            market_title: `Runs after ${target} overs ≥ ${line}?`,
+            close_time: needsClose ? new Date().toISOString() : existing.close_time,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id);
+      }
+    }
+  }
+}
+
+async function settleProjectionMarkets(
+  matchId: string,
+  inning: number,
+  completedOver: number,
+) {
+  // completedOver is 1-based human
+  const targetsToSettle = PROJECTION_TARGET_OVERS.filter((t) => t === completedOver);
+  if (!targetsToSettle.length) return;
+
+  const runsToDate = await getInningRuns(matchId, inning);
+
+  for (const target of targetsToSettle) {
+    const { data: markets } = await supabase
+      .from("instance_markets")
+      .select("id, metadata, market_status")
+      .eq("match_id", matchId)
+      .eq("instance_type", "OVER_PROJECTION")
+      .eq("ro_inning_number", inning)
+      .eq("ro_over_number", target - 1)
+      .in("market_status", ["OPEN", "CLOSED"]);
+
+    if (!markets?.length) continue;
+
+    for (const m of markets) {
+      const line = Number((m as any)?.metadata?.line ?? 0);
+      const winningOutcome = runsToDate >= line ? "Yes" : "No";
+      await supabase
+        .from("instance_markets")
+        .update({
+          market_status: "SETTLED",
+          winning_outcome: winningOutcome,
+          result_data: { runs: runsToDate, line, target_over: target },
+          settle_time: new Date().toISOString(),
+        })
+        .eq("id", (m as any).id);
+      await settleMarketBets((m as any).id, winningOutcome);
+    }
   }
 }
 

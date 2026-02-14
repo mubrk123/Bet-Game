@@ -26,7 +26,7 @@ export function BottomNav() {
 
   // Regular user navigation (gameplay-first)
   const userNavItems = [
-    { href: "/", icon: Home, label: "Sports", testId: "nav-home" },
+    { href: "/", icon: Home, label: "Matches", testId: "nav-home" },
     { href: "/casino", icon: Gamepad2, label: "Casino", testId: "nav-casino" },
     { href: "/my-bets", icon: Ticket, label: "My Plays", testId: "nav-my-plays" },
     { href: "/withdrawals", icon: Wallet, label: "Wallet", testId: "nav-wallet" },

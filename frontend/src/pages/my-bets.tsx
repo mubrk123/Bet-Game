@@ -121,6 +121,8 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
   const type = String(bet?.type ?? bet?.bet_type ?? "BACK").toUpperCase();
   const status = String(bet?.status ?? bet?.bet_status ?? "").toUpperCase();
   const category = String(bet?.bet_category ?? "").toUpperCase(); // PRE_MATCH / INSTANCE etc.
+  const instanceType = String(bet?.instance_type ?? "").toUpperCase();
+  const isSessionInstance = category === "INSTANCE" && instanceType === "OVER_PROJECTION";
 
   const odds = parseNum(bet?.odds);
   const stake = parseNum(bet?.stake);
@@ -187,10 +189,20 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
         bet?.ro_ball_over_label ||
         "";
 
+  const sessionLine = isSessionInstance ? bet?.line : undefined;
+  const sessionTarget = isSessionInstance ? bet?.target_over : undefined;
+  const sessionLineText =
+    isSessionInstance && Number.isFinite(sessionLine)
+      ? Number(sessionLine).toFixed(1)
+      : "—";
+
   // If bet is INSTANCE, show over.ball instead of just "Instance"
   const isInstance = category === "INSTANCE";
-  const marketName =
-    isInstance && overBallLabel ? overBallLabel : rawMarketName;
+  const marketName = isSessionInstance
+    ? `Session after ${sessionTarget ?? "?"} overs`
+    : isInstance && overBallLabel
+    ? overBallLabel
+    : rawMarketName;
 
   const selectionName =
     bet?.selectionName ||
@@ -283,14 +295,20 @@ function BetCard({ bet, variant }: { bet: any; variant: "OPEN" | "SETTLED" }) {
               </SmallBadge>
             </div>
 
-            <div className="mt-0.5 flex items-center gap-2 min-w-0">
-              <span className="text-sm font-semibold text-[#0F172A] truncate">
-                {selectionName}
-              </span>
-              <span className="text-[12px] text-[#475569] truncate">
-                {marketName}
-              </span>
+          <div className="mt-0.5 flex items-center gap-2 min-w-0">
+            <span className="text-sm font-semibold text-[#0F172A] truncate">
+              {selectionName}
+            </span>
+            <span className="text-[12px] text-[#475569] truncate">
+              {marketName}
+            </span>
+          </div>
+
+          {isSessionInstance && (
+            <div className="mt-1 text-[11px] text-[#0B8A5F] font-semibold">
+              Line: {sessionLineText}
             </div>
+          )}
 
             {variant === "SETTLED" && (
               <div className="mt-1 flex items-center gap-2 min-w-0">

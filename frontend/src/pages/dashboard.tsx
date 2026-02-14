@@ -61,6 +61,16 @@ function teamAliases(name: string): string[] {
   ).filter(Boolean);
 }
 
+function parseTarget(details?: string | null): number | null {
+  if (!details) return null;
+  const s = String(details);
+  const m1 = s.match(/target[:\s]+(\d+)/i);
+  if (m1?.[1]) return Number(m1[1]);
+  const m2 = s.match(/(\d+)\s+runs?\s+to\s+win/i);
+  if (m2?.[1]) return Number(m2[1]);
+  return null;
+}
+
 // helper to map runner to team by name
 function normalizeRunnerName(r: any): string {
   return String(r.runner_name || r.name || r.teamName || "")
@@ -134,7 +144,14 @@ function mapMatchWinnerRunners(
   let homeRunner: any = null;
   let awayRunner: any = null;
 
-  // 1) Try to map using team keys (most reliable when consistent)
+  // 1) Map via explicit metadata flags first (authoritative)
+  for (const r of runners) {
+    const meta = (r as any).metadata || {};
+    if (!homeRunner && meta.is_home === true) homeRunner = r;
+    if (!awayRunner && meta.is_away === true) awayRunner = r;
+  }
+
+  // 2) Map using team keys (most reliable when consistent)
   if (homeKey || awayKey) {
     for (const r of runners) {
       const rKey = normalizeKey(
@@ -211,9 +228,6 @@ function mapMatchWinnerRunners(
 
 export default function Dashboard() {
   const { matches, setMatches, currentUser } = useStore();
-  const [phaseFilter, setPhaseFilter] = useState<"all" | "live" | "upcoming">(
-    "all"
-  );
 
   const [selectedBet, setSelectedBet] = useState<{
     match: Match;
@@ -428,6 +442,17 @@ export default function Dashboard() {
     return null;
   }
 
+  // Generic parser when display_score does not include team names (e.g., "81/3 in 10.6 overs")
+  function parseGenericScore(details: string | null | undefined) {
+    if (!details) return null;
+    const m = details.match(/(\d+\s*\/\s*\d+)|(\d+\s*\/\s*all\s*out)/i);
+    const overMatch = details.match(/([\d.]+)\s*(?:ov|overs)/i);
+    const score = m ? m[0].replace(/\s+/g, "") : null;
+    const overs = overMatch ? `${overMatch[1]} ov` : null;
+    if (!score && !overs) return null;
+    return { score, overs };
+  }
+
   function resolveBattingSide(match: any): "home" | "away" | null {
     if (!match) return null;
     if (
@@ -473,12 +498,8 @@ export default function Dashboard() {
 
     const filteredByStatus = formattedMatches.filter((m: any) => {
       const status = (m.status || "").toUpperCase();
-      // Always hide finished matches
       if (status === "FINISHED") return false;
-      if (phaseFilter === "live") return status === "LIVE";
-      if (phaseFilter === "upcoming") return status !== "LIVE";
-      // "All" shows live + upcoming only
-      return status === "LIVE" || status === "UPCOMING" || status === "";
+      return true;
     });
 
     const sortByStart = (a: Match, b: Match) =>
@@ -524,7 +545,7 @@ export default function Dashboard() {
     }
 
     setMatches(ordered);
-  }, [matchesData, setMatches, phaseFilter]);
+  }, [matchesData, setMatches]);
 
   useEffect(() => {
     if (!currentUser?.id) return;
@@ -623,7 +644,10 @@ export default function Dashboard() {
                 }
               : m
           );
-          setMatches(updated);
+          const alive = updated.filter(
+            (m) => (m.status || "").toUpperCase() !== "FINISHED"
+          );
+          setMatches(alive);
         }
       )
       .subscribe((status) => {
@@ -658,71 +682,33 @@ export default function Dashboard() {
         )}
       >
         <div className="max-w-6xl mx-auto px-3 md:px-6 pt-3 pb-18 space-y-2.5">
-          {/* Command Center */}
-          <div
-            className={cn(
-              "rounded-2xl border shadow-sm px-3 py-2.5 space-y-1.25",
-              "bg-white",
-              ivoryTheme.border
+          {/* Top bar: brand left, balance right */}
+          <div className="flex items-center justify-between px-1.5 md:px-0">
+            <div className="text-2xl font-extrabold tracking-tight text-[#0F172A]">
+              CricFun
+            </div>
+            {currentUser && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#D9D2C6] bg-white shadow-sm">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#1F2733"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 7h18v10H3z" />
+                  <path d="M16 12h.01" />
+                  <path d="M5 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
+                </svg>
+                <span className="font-mono text-sm font-semibold text-[#1F2733]">
+                  {currentUser.currency}{" "}
+                  {currentUser.balance.toLocaleString()}
+                </span>
+              </div>
             )}
-          >
-            {/* Row 1: Brand */}
-            <div className="w-full flex justify-center">
-              <div className="text-2xl font-extrabold tracking-tight text-[#0F172A]">
-                CricFun
-              </div>
-            </div>
-
-            {/* Row 2: Filters + balance */}
-            <div className="w-full flex items-center justify-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2">
-                {(["all", "live", "upcoming"] as const).map((key) => {
-                  const active = phaseFilter === key;
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setPhaseFilter(key)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-full border text-sm font-medium transition",
-                        ivoryTheme.chipBorder,
-                        active
-                          ? `${ivoryTheme.chipActiveBg} ${ivoryTheme.chipActiveText} border-[#BEE3F8] shadow-sm`
-                          : `bg-[#F8FAFC] ${ivoryTheme.subtext} hover:bg-[#EDF2F7]`
-                      )}
-                    >
-                      {key === "all"
-                        ? "All"
-                        : key === "live"
-                        ? "Live"
-                        : "Upcoming"}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {currentUser && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#D9D2C6] bg-[#FDFBF6]">
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#1F2733"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M3 7h18v10H3z" />
-                    <path d="M16 12h.01" />
-                    <path d="M5 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
-                  </svg>
-                  <span className="font-mono text-sm font-semibold text-[#1F2733]">
-                    {currentUser.currency}{" "}
-                    {currentUser.balance.toLocaleString()}
-                  </span>
-                </div>
-              )}
-            </div>
           </div>
 
           <div className="grid grid-cols-12 gap-4">
@@ -739,7 +725,7 @@ export default function Dashboard() {
                 </div>
               ) : matches.length === 0 ? (
                 <div className="text-center py-12 text-[#718096]">
-                  No live or upcoming matches right now. Check back soon.
+                  No matches right now. Check back soon.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
@@ -757,27 +743,67 @@ export default function Dashboard() {
                       match.scoreDetails,
                       match.awayTeam
                     );
+                    const parsedGeneric = parseGenericScore(match.scoreDetails);
+
+                    // Prefer provider-formatted display_score (same as match-details); fallback to numeric columns
+                    const parsedScore =
+                      battingSide === "home"
+                        ? parsedHome?.score
+                        : battingSide === "away"
+                        ? parsedAway?.score
+                        : parsedHome?.score || parsedAway?.score || null;
+
+                    const parsedOvers =
+                      battingSide === "home"
+                        ? parsedHome?.overs
+                        : battingSide === "away"
+                        ? parsedAway?.overs
+                        : parsedHome?.overs || parsedAway?.overs || null;
 
                     const liveScore =
-                      isLive && match.runs != null
+                      parsedScore ??
+                      parsedGeneric?.score ??
+                      (match.runs != null
                         ? `${match.runs}/${match.wickets ?? 0}`
-                        : isLive
-                        ? parsedHome?.score || parsedAway?.score || null
-                        : null;
+                        : null);
 
                     const liveOvers =
-                      isLive && match.overs != null
-                        ? `${match.overs} ov`
-                        : isLive
-                        ? parsedHome?.overs || parsedAway?.overs || null
-                        : null;
+                      parsedOvers ??
+                      parsedGeneric?.overs ??
+                      (match.overs != null ? `${match.overs} ov` : null);
+
+                    const targetRuns =
+                      (Number.isFinite(Number(match.targetRuns)) && Number(match.targetRuns) > 0
+                        ? Number(match.targetRuns)
+                        : null) ??
+                      parseTarget(match.scoreDetails);
 
                     const targetLine =
                       isLive &&
                       (match.currentInning ?? 1) >= 2 &&
-                      match.targetRuns != null &&
-                      match.targetRuns > 0
-                        ? `Target ${match.targetRuns}`
+                      targetRuns != null &&
+                      targetRuns > 0
+                        ? targetRuns
+                        : null;
+                    const requiredRuns =
+                      isLive &&
+                      (match.currentInning ?? 1) >= 2 &&
+                      targetRuns != null &&
+                      match.runs != null
+                        ? Math.max(0, targetRuns - match.runs)
+                        : null;
+                    const ballsRemaining = (() => {
+                      if (!isLive || (match.currentInning ?? 1) < 2 || match.overs == null) return null;
+                      const oversCap = 20; // default cap; adjust if format known
+                      const whole = Math.floor(match.overs);
+                      const frac = Math.round((match.overs - whole) * 10);
+                      const ballsBowled = whole * 6 + frac;
+                      const totalBalls = oversCap * 6;
+                      return Math.max(0, totalBalls - ballsBowled);
+                    })();
+                    const requiredRate =
+                      requiredRuns != null && ballsRemaining != null && ballsRemaining > 0
+                        ? (requiredRuns / ballsRemaining) * 6
                         : null;
 
                     const homeRole =
@@ -795,7 +821,7 @@ export default function Dashboard() {
 
                     const statusPill = isLive ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-[#DCFCE7] text-[#15803D] px-2 py-[3px] text-[11px] font-semibold border border-[#BBF7D0]">
-                        <span className="h-1.5 w-1.5 rounded-full bg-[#15803D] animate-pulse" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[#15803D] live-blink" />
                         LIVE
                       </span>
                     ) : (
@@ -824,6 +850,16 @@ export default function Dashboard() {
                           (matchWinnerMarket as any).market_name ||
                           "Match Winner",
                       };
+
+                    const marketStatusRaw =
+                      (matchWinnerMarket as any)?.status ||
+                      (matchWinnerMarket as any)?.market_status ||
+                      "";
+                    const marketStatus = marketStatusRaw
+                      ? String(marketStatusRaw).toUpperCase()
+                      : "OPEN";
+                    const bettingClosed =
+                      status === "FINISHED" || marketStatus !== "OPEN";
 
                     const tossLine = getTossLine(match);
 
@@ -874,11 +910,7 @@ export default function Dashboard() {
                               banner={match.homeTeamBanner}
                               score={null}
                               subline={homeRole}
-                              extra={
-                                battingSide === "home" && targetLine
-                                  ? targetLine
-                                  : null
-                              }
+                              extra={null}
                               align="left"
                             />
                             <div className="flex flex-col items-center justify-center text-center min-w-0">
@@ -906,19 +938,29 @@ export default function Dashboard() {
                               banner={match.awayTeamBanner}
                               score={null}
                               subline={awayRole}
-                              extra={
-                                battingSide === "away" && targetLine
-                                  ? targetLine
-                                  : null
-                              }
+                              extra={null}
                               align="right"
                             />
                           </div>
                         </div>
 
-                        {tossLine && (
-                          <div className="pt-1 text-center text-[12px] text-[#475569]">
-                            {tossLine}
+                        {(requiredRuns != null || tossLine) && (
+                          <div className="pt-1 text-center">
+                            {requiredRuns != null ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12px] font-semibold text-[#0B8A5F] bg-[#ECFDF3] border border-[#BBF7D0]">
+                                Need {requiredRuns} runs
+                                {ballsRemaining != null && ` in ${ballsRemaining} balls`}
+                                {requiredRate != null && (
+                                  <span className="text-[#0B8A5F]/80"> (RR {requiredRate.toFixed(2)})</span>
+                                )}
+                              </span>
+                            ) : (
+                              tossLine && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12px] font-semibold text-[#C81E3D] bg-[#FDE8EB] border border-[#C81E3D33]">
+                                  {tossLine}
+                                </span>
+                              )
+                            )}
                           </div>
                         )}
 
@@ -950,10 +992,14 @@ export default function Dashboard() {
                                           <button
                                             className={cn(
                                               "rounded-md border border-[#34D399] bg-[#ECFDF3] py-2 text-center text-[13px] font-semibold text-[#065F46]",
-                                              "hover:shadow-sm transition"
+                                              "hover:shadow-sm transition",
+                                              bettingClosed &&
+                                                "opacity-60 cursor-not-allowed"
                                             )}
+                                            disabled={bettingClosed}
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              if (bettingClosed) return;
                                               normalizedMarket &&
                                                 handleBetSelect(
                                                   match,
@@ -969,10 +1015,14 @@ export default function Dashboard() {
                                           <button
                                             className={cn(
                                               "rounded-md border border-[#FECACA] bg-[#FEF2F2] py-2 text-center text-[13px] font-semibold text-[#991B1B]",
-                                              "hover:shadow-sm transition"
+                                              "hover:shadow-sm transition",
+                                              bettingClosed &&
+                                                "opacity-60 cursor-not-allowed"
                                             )}
+                                            disabled={bettingClosed}
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              if (bettingClosed) return;
                                               normalizedMarket &&
                                                 handleBetSelect(
                                                   match,
@@ -1013,10 +1063,14 @@ export default function Dashboard() {
                                           <button
                                             className={cn(
                                               "rounded-md border border-[#34D399] bg-[#ECFDF3] py-2 text-center text-[13px] font-semibold text-[#065F46]",
-                                              "hover:shadow-sm transition"
+                                              "hover:shadow-sm transition",
+                                              bettingClosed &&
+                                                "opacity-60 cursor-not-allowed"
                                             )}
+                                            disabled={bettingClosed}
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              if (bettingClosed) return;
                                               normalizedMarket &&
                                                 handleBetSelect(
                                                   match,
@@ -1032,10 +1086,14 @@ export default function Dashboard() {
                                           <button
                                             className={cn(
                                               "rounded-md border border-[#FECACA] bg-[#FEF2F2] py-2 text-center text-[13px] font-semibold text-[#991B1B]",
-                                              "hover:shadow-sm transition"
+                                              "hover:shadow-sm transition",
+                                              bettingClosed &&
+                                                "opacity-60 cursor-not-allowed"
                                             )}
+                                            disabled={bettingClosed}
                                             onClick={(e) => {
                                               e.stopPropagation();
+                                              if (bettingClosed) return;
                                               normalizedMarket &&
                                                 handleBetSelect(
                                                   match,

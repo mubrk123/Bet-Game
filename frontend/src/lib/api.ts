@@ -39,6 +39,8 @@ export interface ApiBallEvent {
   ro_wicket_kind?: string;
   ro_extra_type?: string;
 
+  ro_event_type?: string | null;
+
   ro_batsman_key?: string;
   ro_batsman_name?: string | null;
   ro_bowler_key?: string;
@@ -85,6 +87,24 @@ export interface ApiInstanceMarket {
 // friendly aliases for components
 export type InstanceMarket = ApiInstanceMarket;
 export type InstanceOutcome = ApiInstanceOutcome;
+export interface SessionMarket {
+  id?: string;
+  match_id: string;
+  inning: number;
+  target_over: number;
+  projected_line: number | null;
+  mode?: string | null;
+  runs?: number | null;
+  wickets?: number | null;
+  overs_decimal?: number | null;
+  crr?: number | null;
+  wicket_reduction?: number | null;
+  status?: string | null;
+  close_time?: string | null;
+  settle_time?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+}
 
 export interface ApiBet {
   id: string;
@@ -161,12 +181,13 @@ ro_team_home_key,ro_team_home_name,ro_team_away_key,ro_team_away_name,
 home_team_banner,away_team_banner,ro_start_time,display_status,display_score,
 ro_status,ro_match_state,ro_play_status,
 ro_score_runs,ro_score_wickets,ro_score_overs,ro_current_inning,ro_target_runs,
+ro_required_runs,ro_required_balls,
 ro_batting_team_key,ro_bowling_team_key,ro_venue_name,ro_venue_city,
 toss_won_by,elected_to,ro_toss_won_by,ro_toss_decision,toss_recorded_at,
 updated_at,created_at`;
 
  const BALL_EVENTS_SELECT = `id,match_id,ro_ball_key,ro_inning_number,ro_over_number,ro_ball_in_over,ro_sub_ball_number,
-ro_total_runs,ro_batsman_runs,ro_extras_runs,ro_is_wicket,ro_wicket_kind,ro_extra_type,
+ro_total_runs,ro_batsman_runs,ro_extras_runs,ro_is_wicket,ro_wicket_kind,ro_extra_type,ro_event_type,
 ro_batsman_key,ro_batsman_name,ro_bowler_key,ro_bowler_name,ro_commentary,created_at`;
 
 // Convert raw match row into UI-friendly shape expected by the store/pages.
@@ -228,6 +249,9 @@ function mapToUiMatch(row: any): Match {
         ? Math.round((Number(row.ro_score_overs) % 1) * 10)
         : row.current_ball ?? null,
 
+    requiredRuns: row.ro_required_runs != null ? Number(row.ro_required_runs) : null,
+    requiredBalls: row.ro_required_balls != null ? Number(row.ro_required_balls) : null,
+
     // ✅ Toss fields fixed for UI display
     toss_won_by: tossWinnerUi,
     elected_to: rawTossDecision,
@@ -252,6 +276,10 @@ function mapToUiMarket(market: any): Market {
     backOdds: Number(r.back_odds ?? 0),
     layOdds: r.lay_odds == null ? null : Number(r.lay_odds),
     volume: Number(r.total_matched ?? 0),
+    teamKey: r.ro_team_key || r.team_key || r.teamKey || null,
+    isHome: r.metadata?.is_home === true,
+    isAway: r.metadata?.is_away === true,
+    metadata: r.metadata ?? null,
   }));
 
   const status =
@@ -266,6 +294,7 @@ function mapToUiMarket(market: any): Market {
     matchId: market.match_id,
     name: market.market_name,
     status,
+    metadata: market.metadata || null,
     runners,
   };
 }
@@ -615,6 +644,21 @@ class ApiClient {
     return { markets: (data || []).map(mapToUiInstanceMarket) };
   }
 
+  async getSessionMarkets(matchId: string, inning?: number): Promise<{ markets: SessionMarket[] }> {
+    let query = supabase
+      .from("session_markets")
+      .select("*")
+      .eq("match_id", matchId);
+
+    if (inning != null) {
+      query = query.eq("inning", inning);
+    }
+
+    const { data, error } = await query.order("target_over");
+    if (error) throw error;
+    return { markets: (data as SessionMarket[]) || [] };
+  }
+
   // ==========================================================================
   // BETTING
   // ==========================================================================
@@ -715,39 +759,82 @@ class ApiClient {
       over?: number;
       ball?: number;
       label?: string;
+      target_over?: number;
+      line?: number;
+      instance_type?: string;
     }
   > = {};
+
+  let sessionLineLookup: Record<string, number> = {};
 
   if (instanceMarketIds.length > 0) {
     const { data: imData, error: imError } = await supabase
       .from("instance_markets")
-      .select("id, ro_inning_number, ro_over_number, ro_ball_number")
+      .select("id, match_id, ro_inning_number, ro_over_number, ro_ball_number, instance_type, metadata")
       .in("id", instanceMarketIds);
 
     if (imError) {
       console.error("getUserBets: instance_markets lookup failed:", imError);
     } else {
+      const sessionKeys: Array<{ match_id: string; inning: number; target_over: number }> = [];
+
       instanceMeta = Object.fromEntries(
         (imData || []).map((im: any) => {
           const over = Number(im.ro_over_number ?? 0);
           const ball = Number(im.ro_ball_number ?? 0);
           const hasAny = over > 0 || ball > 0;
           const label = hasAny ? `${over}.${ball}` : undefined;
+          const meta = im.metadata || {};
+          const targetOverRaw =
+            Number(meta?.target_over ?? meta?.targetOver ?? (im.ro_over_number != null ? Number(im.ro_over_number) + 1 : NaN));
+          const targetOver = Number.isFinite(targetOverRaw) && targetOverRaw > 0 ? targetOverRaw : undefined;
+          const lineRaw = Number(meta?.line ?? NaN);
+          const line = Number.isFinite(lineRaw) && lineRaw > 0 ? lineRaw : undefined;
+          const inningNum = im.ro_inning_number != null ? Number(im.ro_inning_number) : undefined;
+
+          const isSession = String(im.instance_type || "").toUpperCase() === "OVER_PROJECTION";
+          if (isSession && im.match_id && Number.isFinite(targetOver)) {
+            sessionKeys.push({
+              match_id: im.match_id,
+              inning: inningNum ?? 1,
+              target_over: Number(targetOver),
+            });
+          }
 
           return [
             im.id,
             {
-              inning:
-                im.ro_inning_number != null
-                  ? Number(im.ro_inning_number)
-                  : undefined,
+              inning: inningNum,
               over: over || undefined,
               ball: ball || undefined,
               label,
+              target_over: targetOver,
+              line,
+              instance_type: im.instance_type,
+              match_id: im.match_id,
             },
           ];
         }),
       );
+
+      // Fetch session_markets lines to backfill missing lines for session bets
+      const matchIds = Array.from(new Set(sessionKeys.map((k) => k.match_id)));
+      if (matchIds.length > 0) {
+        const { data: sessData, error: sessErr } = await supabase
+          .from("session_markets")
+          .select("match_id, inning, target_over, projected_line")
+          .in("match_id", matchIds);
+        if (sessErr) {
+          console.error("getUserBets: session_markets lookup failed:", sessErr);
+        } else {
+          sessionLineLookup = Object.fromEntries(
+            (sessData || []).map((row: any) => {
+              const key = `${row.match_id}:${row.inning || 1}:${row.target_over}`;
+              return [key, Number(row.projected_line)];
+            }),
+          );
+        }
+      }
     }
   }
 
@@ -798,6 +885,20 @@ class ApiClient {
           ? `${ro_over_number}.${ro_ball_number}`
           : undefined));
 
+    // Backfill session line if missing, but prefer stored bet snapshot
+    let sessionLine: number | undefined =
+      Number.isFinite(row.session_line) && Number(row.session_line) > 0 ? Number(row.session_line) : inst?.line;
+    let sessionTarget: number | undefined =
+      Number.isFinite(row.session_target_over) && Number(row.session_target_over) > 0
+        ? Number(row.session_target_over)
+        : inst?.target_over;
+
+    if (!Number.isFinite(sessionLine) && inst?.instance_type && inst.instance_type.toUpperCase() === "OVER_PROJECTION") {
+      const key = `${inst.match_id}:${inst.inning ?? 1}:${inst.target_over ?? ""}`;
+      const lookupLine = sessionLineLookup[key];
+      if (Number.isFinite(lookupLine)) sessionLine = lookupLine;
+    }
+
     return {
       id: row.id,
       user_id: row.user_id,
@@ -807,6 +908,9 @@ class ApiClient {
       bet_category: row.bet_category,
       market_id: row.market_id,
       runner_name: row.runner_name,
+      instance_type: inst?.instance_type,
+      target_over: inst?.target_over,
+      line: sessionLine,
 
       odds: Number(row.odds ?? 0),
       stake: Number(row.stake ?? 0),

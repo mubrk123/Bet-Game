@@ -14,6 +14,7 @@ type RealtimeEventType =
   | "match:score"
   | "match:ball"
   | "markets:update"
+  | "session:update"
   | "bet:settled"
   | "wallet:update";
 
@@ -50,7 +51,7 @@ class SupabaseRealtimeClient {
   subscribeToMatch(matchId: string) {
     if (this.channels.has(matchId)) return;
 
-    const emitMarketsUpdate = async () => {
+    const emitInstanceMarketsUpdate = async () => {
       const { data } = await supabase
         .from("instance_markets")
         .select("id, market_title, market_status, close_time, ro_over_number, ro_ball_number, ro_inning_number, outcomes:instance_outcomes (*)")
@@ -116,7 +117,7 @@ class SupabaseRealtimeClient {
             matchId: row.match_id,
             inning: Number(row.ro_inning_number ?? 1),
             over: Number(row.ro_over_number ?? 0),
-            ball: Number(row.ro_ball_in_over ?? 0),
+            ball: Math.max(1, Number(row.ro_ball_in_over ?? 1)), // normalize first ball to 1
             subBall: Number(row.ro_sub_ball_number ?? 0),
             runsScored: Number(row.ro_batsman_runs ?? 0),
             extras: extrasRuns,
@@ -155,6 +156,9 @@ class SupabaseRealtimeClient {
               row.display_score ||
               buildScoreDetailsFromInnings(row.ro_innings_summary) ||
               undefined,
+            runs: Number.isFinite(Number(row.ro_score_runs)) ? Number(row.ro_score_runs) : undefined,
+            wickets: Number.isFinite(Number(row.ro_score_wickets)) ? Number(row.ro_score_wickets) : undefined,
+            overs: row.ro_score_overs != null ? String(row.ro_score_overs) : undefined,
             currentOver: Number(row.ro_score_overs ?? 0),
             currentBall: Math.round(((Number(row.ro_score_overs ?? 0) || 0) % 1) * 10),
             currentInning: row.ro_current_inning,
@@ -180,7 +184,7 @@ class SupabaseRealtimeClient {
           filter: `match_id=eq.${matchId}`,
         },
         async () => {
-          await emitMarketsUpdate();
+          await emitInstanceMarketsUpdate();
         }
       )
       .on(
@@ -192,7 +196,51 @@ class SupabaseRealtimeClient {
           filter: `match_id=eq.${matchId}`,
         },
         async () => {
-          await emitMarketsUpdate();
+          await emitInstanceMarketsUpdate();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "session_markets",
+          filter: `match_id=eq.${matchId}`,
+        },
+        () => {
+          this.emit("session:update", { matchId });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "markets",
+          filter: `match_id=eq.${matchId}`,
+        },
+        (payload) => {
+          this.emit("markets:update", {
+            matchId,
+            status: (payload.new as any)?.market_status,
+            timestamp: Date.now(),
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "markets",
+          filter: `match_id=eq.${matchId}`,
+        },
+        (payload) => {
+          this.emit("markets:update", {
+            matchId,
+            status: (payload.new as any)?.market_status,
+            timestamp: Date.now(),
+          });
         }
       )
       .subscribe();

@@ -12,7 +12,7 @@ import { Activity, Clock3, X, ArrowLeft } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type InstanceMarket, type InstanceOutcome } from "@/lib/api";
+import { api, type InstanceMarket, type InstanceOutcome, type SessionMarket } from "@/lib/api";
 import { wsClient } from "@/lib/websocket";
 import type { MatchScoreUpdate, BallResult } from "@shared/realtime";
 import { supabase } from "@/lib/supabase";
@@ -76,6 +76,7 @@ type BallEventRow = {
   over: number;
   ball: number;
   sub_ball: number;
+  event_type?: string | null;
   ball_key?: string;
   is_legal: boolean;
   batsman_name: string;
@@ -259,6 +260,7 @@ function formatOverLabel(market: InstanceMarket | null | undefined): string | nu
   if (Number.isFinite(over)) return `Over ${over}`;
   return null;
 }
+
 
 function TeamBadge({ name, banner }: { name: string; banner?: string | null }) {
   const [imgError, setImgError] = useState(false);
@@ -628,12 +630,18 @@ function parseTarget(details: string | null | undefined): number | null {
 
 function parseRequired(details: string | null | undefined): { runs: number; balls: number } | null {
   if (!details) return null;
-  const m1 = details.match(/(\d+)\s+runs?\s+required\s+from\s+(\d+)\s+balls/i);
-  if (m1?.[1] && m1?.[2]) return { runs: Number(m1[1]), balls: Number(m1[2]) };
-  const m2 = details.match(/need\s+(\d+)\s+runs?\s+in\s+(\d+)\s+balls/i);
-  if (m2?.[1] && m2?.[2]) return { runs: Number(m2[1]), balls: Number(m2[2]) };
-  const m3 = details.match(/requires?\s+(\d+)\s+runs?\s+in\s+(\d+)\s+balls/i);
-  if (m3?.[1] && m3?.[2]) return { runs: Number(m3[1]), balls: Number(m3[2]) };
+  const patterns = [
+    /(\d+)\s+runs?\s+required\s+from\s+(\d+)\s+balls/i,
+    /need\s+(\d+)\s+runs?\s+in\s+(\d+)\s+balls/i,
+    /requires?\s+(\d+)\s+runs?\s+in\s+(\d+)\s+balls/i,
+    /(\d+)\s+runs?\s+to\s+win\s+(?:from|in|off)\s+(\d+)\s+balls/i,
+    /(\d+)\s+runs?\s+needed\s+(?:from|in|off)\s+(\d+)\s+balls/i,
+    /(\d+)\s+runs?\s+(?:from|off)\s+(\d+)\s+balls/i,
+  ];
+  for (const rx of patterns) {
+    const m = details.match(rx);
+    if (m?.[1] && m?.[2]) return { runs: Number(m[1]), balls: Number(m[2]) };
+  }
   return null;
 }
 
@@ -854,7 +862,7 @@ export default function MatchDetail() {
     type: "BACK" | "LAY";
     odds: number;
   } | null>(null);
-  const [activeTab, setActiveTab] = useState<"winner" | "live" | "session" | "commentary">("winner");
+  const [activeTab, setActiveTab] = useState<"winner" | "live" | "session" | "player" | "commentary">("winner");
   const defaultTabSetRef = useRef(false);
   const isMobile = useIsMobile();
 
@@ -942,8 +950,6 @@ export default function MatchDetail() {
   }, [baseMatch, marketsOverride]);
 
   const match = matchWithMarkets;
-    const isFinishedMatch = match?.status === "FINISHED";
-
 
   useEffect(() => {
     if (match && !defaultTabSetRef.current) {
@@ -1031,6 +1037,26 @@ export default function MatchDetail() {
     refetchInterval: 15000,
   });
 
+  const isFinishedMatch = useMemo(() => {
+    const statuses = [
+      match?.status,
+      liveScore?.status,
+      (realtimeData as any)?.status,
+      liveScore?.roStatusRaw,
+      (realtimeData as any)?.roStatusRaw,
+    ];
+    return statuses.some((s) => {
+      const v = String(s || "").toLowerCase();
+      return (
+        v.includes("finish") ||
+        v.includes("finished") ||
+        v.includes("complete") ||
+        v.includes("completed") ||
+        v.includes("result")
+      );
+    });
+  }, [match?.status, liveScore?.status, realtimeData, liveScore?.roStatusRaw]);
+
   const [ballFeed, setBallFeed] = useState<BallEventRow[]>([]);
   const [commentary, setCommentary] = useState<BallEventRow[]>([]);
   useQuery({
@@ -1044,7 +1070,7 @@ export default function MatchDetail() {
       const { data, error } = await supabase
         .from("ball_events")
         .select(
-          "ro_inning_number, ro_over_number, ro_ball_in_over, ro_sub_ball_number, ro_ball_key, ro_is_legal_delivery, ro_batsman_name, ro_non_striker_name, ro_bowler_name, ro_batsman_runs, ro_extras_runs, ro_total_runs, ro_is_wicket, ro_extra_type, ro_is_boundary, ro_is_six, ro_batsman_key, ro_non_striker_key, ro_bowler_key, ro_commentary, created_at"
+          "ro_inning_number, ro_over_number, ro_ball_in_over, ro_sub_ball_number, ro_ball_key, ro_is_legal_delivery, ro_batsman_name, ro_non_striker_name, ro_bowler_name, ro_batsman_runs, ro_extras_runs, ro_total_runs, ro_is_wicket, ro_extra_type, ro_is_boundary, ro_is_six, ro_batsman_key, ro_non_striker_key, ro_bowler_key, ro_event_type, ro_commentary, created_at"
         )
         .eq("match_id", dbMatchId)
         .or("ro_is_deleted.is.null,ro_is_deleted.eq.false")
@@ -1081,7 +1107,7 @@ export default function MatchDetail() {
         .map((row: any) => {
           const extraShort = normalizeExtraTypeShort(row.ro_extra_type);
           const over = Number(row.ro_over_number ?? 0);
-          const ballNum = Number(row.ro_ball_in_over ?? 0);
+          const ballNum = Math.max(1, Number(row.ro_ball_in_over ?? 1)); // normalize 0 -> 1
           const totalRunsNum = Number(row.ro_total_runs ?? 0);
           const wicket = !!row.ro_is_wicket;
           if (isPlaceholderBall(over, ballNum, totalRunsNum, wicket)) return null;
@@ -1092,6 +1118,7 @@ export default function MatchDetail() {
             sub_ball: Number(row.ro_sub_ball_number ?? 0),
             ball_key: row.ro_ball_key || undefined,
             is_legal: row.ro_is_legal_delivery ?? true,
+            event_type: row.ro_event_type || null,
             batsman_name: row.ro_batsman_name || nameMap[row.ro_batsman_key] || row.ro_batsman_key || "—",
             non_striker_name:
               row.ro_non_striker_name || nameMap[row.ro_non_striker_key] || row.ro_non_striker_key || "—",
@@ -1112,7 +1139,7 @@ export default function MatchDetail() {
 
       const deduped = dedupeBallEvents(mapped);
       setBallFeed(deduped);
-      setCommentary(deduped.filter((b) => (b.commentary || "").trim().length > 0));
+      setCommentary(deduped);
       return deduped;
     },
   });
@@ -1175,6 +1202,7 @@ export default function MatchDetail() {
         is_boundary: !!row.ro_is_boundary,
         is_six: !!row.ro_is_six,
         commentary: row.ro_commentary ?? null,
+        event_type: row.ro_event_type || null,
         created_at: row.created_at,
       };
 
@@ -1184,10 +1212,22 @@ export default function MatchDetail() {
           const sameTs = !mapped.ball_key && b.created_at === mapped.created_at;
           return !(sameKey || sameTs);
         });
-        const next = dedupeBallEvents([mapped, ...filtered]);
-        const withComment = next.filter((b) => (b.commentary || "").trim().length > 0);
-        setCommentary(withComment);
-        return next.slice(0, 300);
+
+        const merged = dedupeBallEvents([...filtered, mapped]);
+
+        // Stable ordering: chronological by created_at, then over, ball, sub_ball
+        const sorted = merged.slice().sort((a, b) => {
+          const ta = Date.parse(a.created_at || "") || 0;
+          const tb = Date.parse(b.created_at || "") || 0;
+          if (ta !== tb) return ta - tb;
+          if (a.inning !== b.inning) return a.inning - b.inning;
+          if (a.over !== b.over) return a.over - b.over;
+          if (a.ball !== b.ball) return a.ball - b.ball;
+          return a.sub_ball - b.sub_ball;
+        });
+
+        setCommentary(sorted);
+        return sorted.slice(-300);
       });
     };
 
@@ -1235,17 +1275,31 @@ export default function MatchDetail() {
       const innings = ballFeed.map((e) => toNum(e.inning, 1));
       return Math.max(...innings);
     }
+    const matchInning = (match as any)?.currentInning ?? (match as any)?.currentInnings ?? null;
+    if (matchInning != null) return toNum(matchInning, 1);
     const rtAny = realtimeData as any;
     if (rtAny?.inning != null) return toNum(rtAny.inning, 1);
     if (rtAny?.currentInning != null) return toNum(rtAny.currentInning, 1);
     if (liveScore?.currentInning != null) return toNum(liveScore.currentInning, 1);
     return 1;
-  }, [ballFeed, realtimeData, liveScore]);
+  }, [ballFeed, realtimeData, liveScore, match]);
 
   const effectiveEvents = useMemo(() => {
     if (ballFeed.length > 0) return ballFeed;
     return [];
   }, [ballFeed]);
+
+  const { data: sessionTableMarkets = [] } = useQuery<SessionMarket[]>({
+    queryKey: ["session-markets", dbMatchId, activeInning],
+    enabled: Boolean(dbMatchId && activeInning),
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    queryFn: async () => {
+      if (!dbMatchId) return [];
+      const { markets } = await api.getSessionMarkets(dbMatchId, activeInning || 1);
+      return markets as SessionMarket[];
+    },
+  });
 
   const latestInningBall = useMemo(() => {
     const relevant = effectiveEvents
@@ -1382,20 +1436,38 @@ export default function MatchDetail() {
       }
     });
 
+    const unsubMarkets = wsClient.on("markets:update", (data: any) => {
+      if (data.matchId === subId) {
+        queryClient.invalidateQueries({ queryKey: ["markets", subId] });
+        queryClient.invalidateQueries({ queryKey: ["match", params?.id] });
+      }
+    });
+
+    const unsubSession = wsClient.on("session:update", (data: any) => {
+      if (data.matchId === subId) {
+        queryClient.invalidateQueries({ queryKey: ["session-markets", subId, activeInning] });
+      }
+    });
+
     return () => {
       wsClient.unsubscribeFromMatch(subId);
       unsubScore();
       unsubBall();
+      unsubMarkets();
+      unsubSession();
     };
   }, [dbMatchId, params?.id, queryClient, activeInning]);
 
   const displayDetails = realtimeData?.scoreDetails || liveScore?.scoreDetails || match?.scoreDetails;
   const isLive = match?.status === "LIVE";
-  const target = realtimeData?.targetRuns ?? parseTarget(displayDetails) ?? (match as any)?.targetRuns ?? null;
-  const statusNote = (realtimeData as any)?.statusNote ?? match?.statusNote ?? null;
-
   const parsedDetails = parseScoreDetailsCompact(displayDetails);
   const parsedInnings = parseScoreDetailsInnings(displayDetails, match?.homeTeam || "", match?.awayTeam || "");
+  const target =
+    realtimeData?.targetRuns ??
+    (match as any)?.targetRuns ??
+    parseTarget(displayDetails) ??
+    null;
+  const statusNote = (realtimeData as any)?.statusNote ?? match?.statusNote ?? null;
 
   const scoreFromDb = inningScoreFromDb ? formatScoreCompact(inningScoreFromDb.runs, inningScoreFromDb.wkts) : null;
 
@@ -1428,6 +1500,13 @@ export default function MatchDetail() {
   const authoritativeBall0to5ForText =
     inningScoreFromDb?.ball0to5 ?? (lastBall ? Math.max(0, toNum(lastBall.ball, 1) - 1) : 0);
 
+  // Decimal over for filtering projection/session markets (e.g., 6.3 overs => 6 + 3/6)
+  const currentOverDecimal = useMemo(() => {
+    const over = toNum(authoritativeOverForText, 0);
+    const ball = toNum(authoritativeBall0to5ForText, 0);
+    return over + ball / 6;
+  }, [authoritativeOverForText, authoritativeBall0to5ForText]);
+
   const overFromDb = inningScoreFromDb ? formatOversCompact(authoritativeOverForText, authoritativeBall0to5ForText) : null;
 
   const overText =
@@ -1443,7 +1522,112 @@ export default function MatchDetail() {
     "—";
 
   const required = parseRequired(displayDetails);
-  const rrr = required && required.balls > 0 ? ((required.runs / required.balls) * 6).toFixed(2) : null;
+  const requiredFromMatch = useMemo(() => {
+    const runs = toNum((match as any)?.ro_required_runs ?? (match as any)?.required_runs, null);
+    const balls = toNum((match as any)?.ro_required_balls ?? (match as any)?.required_balls, null);
+    if (Number.isFinite(runs) && Number.isFinite(balls)) return { runs, balls };
+    return null;
+  }, [match]);
+  const providerRequired = useMemo(() => {
+    const r =
+      (realtimeData as any)?.live?.required_score ||
+      (realtimeData as any)?.required_score ||
+      (realtimeData as any)?.required ||
+      null;
+    if (!r) return null;
+    const runs = toNum(r.runs, NaN);
+    const balls = toNum(r.balls, NaN);
+    if (Number.isFinite(runs) && Number.isFinite(balls)) return { runs, balls };
+    return null;
+  }, [realtimeData]);
+  const isSecondInnings = activeInning >= 2;
+
+  const inningsOversLimit = useMemo(() => {
+    const leagueStr = `${match?.league || ""} ${match?.series || ""} ${match?.competition || ""} ${match?.tournament || ""}`.toLowerCase();
+    if (leagueStr.includes("t10")) return 10;
+    if (leagueStr.includes("t20") || leagueStr.includes("20/20") || leagueStr.includes("twenty20")) return 20;
+    if (leagueStr.includes("odi") || leagueStr.includes("one day") || leagueStr.includes("50")) return 50;
+    const firstInningsEntry =
+      parsedInnings.find((i) => i.team && (!battingTeamResolved || !strictTeamEquals(i.team, battingTeamResolved))) ||
+      parsedInnings[0];
+    if (firstInningsEntry?.overs && Number.isFinite(firstInningsEntry.overs)) {
+      const ov = Number(firstInningsEntry.overs);
+      if (ov >= 5 && ov <= 50) return ov;
+    }
+    return null;
+  }, [match?.league, match?.series, match?.competition, match?.tournament, parsedInnings, battingTeamResolved]);
+
+  const legalBallsSoFar = useMemo(() => {
+    if (inningScoreFromDb?.legalBalls != null) return inningScoreFromDb.legalBalls;
+    const overNum = toNum(authoritativeOverForText, NaN);
+    const ballNum = toNum(authoritativeBall0to5ForText, NaN);
+    if (Number.isFinite(overNum) && Number.isFinite(ballNum)) return overNum * 6 + ballNum;
+    const fallbackOversText = overText || parsedDetails.oversText || (liveScore?.overs != null ? String(liveScore.overs) : null);
+    if (fallbackOversText) {
+      const numeric = Number(String(fallbackOversText).replace(",", "."));
+      if (Number.isFinite(numeric)) {
+        const whole = Math.floor(numeric);
+        const frac = Math.round((numeric - whole) * 10);
+        const balls = Math.max(0, Math.min(6, frac));
+        return whole * 6 + balls;
+      }
+    }
+    return null;
+  }, [inningScoreFromDb, authoritativeOverForText, authoritativeBall0to5ForText, parsedDetails.oversText, overText, liveScore]);
+
+  const currentRuns = useMemo(() => {
+    if (inningScoreFromDb?.runs != null) return inningScoreFromDb.runs;
+    if (battingTeamResolved && parsedInnings.length > 0) {
+      const entry = parsedInnings.find((i) => (i.team ? strictTeamEquals(i.team, battingTeamResolved) : false));
+      if (entry?.runs != null) return entry.runs;
+    }
+    if (parsedDetails.runs != null) return parsedDetails.runs;
+    if (liveScore?.runs != null) return liveScore.runs;
+    return null;
+  }, [inningScoreFromDb, parsedInnings, battingTeamResolved, parsedDetails.runs, liveScore]);
+
+  const derivedChase = useMemo(() => {
+    if (!isSecondInnings) return null;
+    if (target == null || currentRuns == null) return null;
+    const runsNeeded = Math.max(0, target - currentRuns);
+    const ballsSoFar = legalBallsSoFar;
+    const oversCap = inningsOversLimit;
+    if (ballsSoFar == null || oversCap == null) return null;
+    const ballsTotal = oversCap * 6;
+    const ballsRemaining = Math.max(0, ballsTotal - ballsSoFar);
+    if (ballsRemaining <= 0) return null;
+    return { runs: runsNeeded, balls: ballsRemaining };
+  }, [isSecondInnings, target, currentRuns, legalBallsSoFar, inningsOversLimit]);
+
+  const chaseInfo = useMemo(() => {
+    if (!isSecondInnings) return null;
+    if (providerRequired) return providerRequired;
+    if (requiredFromMatch) return requiredFromMatch;
+    if (required?.runs != null && required?.balls != null) return required;
+    if (derivedChase) return derivedChase;
+    return null;
+  }, [isSecondInnings, providerRequired, requiredFromMatch, required, derivedChase]);
+
+  const chaseLabel = useMemo(() => {
+    if (battingTeamResolved) return battingTeamResolved;
+    if (isSecondInnings) return match?.homeTeam || match?.awayTeam || "Batting team";
+    return null;
+  }, [battingTeamResolved, isSecondInnings, match?.homeTeam, match?.awayTeam]);
+
+  const validChase =
+    chaseInfo && chaseInfo.runs != null && chaseInfo.balls != null && chaseInfo.runs > 0 && chaseInfo.balls > 0
+      ? chaseInfo
+      : null;
+
+  const rrr = validChase ? ((validChase.runs / validChase.balls) * 6).toFixed(2) : null;
+  const chaseText = validChase && chaseLabel ? `${chaseLabel} needs ${validChase.runs} runs in ${validChase.balls} balls` : null;
+  const resultText = useMemo(() => {
+    if (!isFinishedMatch) return null;
+    const note = statusNote || liveScore?.status || (realtimeData as any)?.status || null;
+    if (note && /\bwon\b/i.test(String(note))) return note;
+    const generic = `${match?.homeTeam || "Home"} vs ${match?.awayTeam || "Away"}`;
+    return note ? `${generic} • ${note}` : `${generic} • Match finished`;
+  }, [isFinishedMatch, statusNote, liveScore?.status, realtimeData, match?.homeTeam, match?.awayTeam]);
 
   const currentOverEvents = useMemo(() => {
     const overNum = Math.floor(toNum(authoritativeOverForText, 0));
@@ -1721,8 +1905,115 @@ export default function MatchDetail() {
   }, [match, matchWinnerMarket]);
 
   const sessionMarkets = useMemo(() => {
-    return (instanceMarkets as InstanceMarket[]).filter((m) => (m.instance_type || (m as any).instanceType) === "OVER_RUNS");
-  }, [instanceMarkets]);
+    const list = (sessionTableMarkets as SessionMarket[]).slice();
+    return list
+      .filter((m) => m.status && ["OPEN", "SUSPENDED", "SETTLED"].includes(String(m.status).toUpperCase()))
+      .sort((a, b) => (a.target_over || 0) - (b.target_over || 0));
+  }, [sessionTableMarkets]);
+
+  /* =========================
+     Player top markets (3-card)
+  ========================= */
+  const playerMarkets = useMemo(() => {
+    const list = (match?.markets || []).filter((m: any) => {
+      const n = String(m.name || m.market_name || "").toLowerCase();
+      return (
+        n.includes("top batter") ||
+        n.includes("top bowler") ||
+        n.includes("best batter") ||
+        n.includes("best bowler")
+      );
+    });
+    return list as any[];
+  }, [match?.markets]);
+
+  const groupPlayerMarket = (keyword: string) =>
+    playerMarkets.find((m) => String(m.name || m.market_name || "").toLowerCase() === keyword.toLowerCase());
+
+  const inningPlayerMarkets = useMemo(() => {
+    const build = (inning: number, type: "batter" | "bowler") => {
+      const label =
+        type === "batter"
+          ? `Best Batter - Innings ${inning}`
+          : `Best Bowler - Innings ${inning}`;
+      return groupPlayerMarket(label);
+    };
+
+    const items: Array<{ inning: number; type: "batter" | "bowler"; market: any }> = [];
+    [1, 2].forEach((inn) => {
+      const batter = build(inn, "batter");
+      const bowler = build(inn, "bowler");
+      if (batter) items.push({ inning: inn, type: "batter", market: batter });
+      if (bowler) items.push({ inning: inn, type: "bowler", market: bowler });
+    });
+
+    return items
+      .filter((x) => {
+        const status = String((x.market as any)?.market_status || (x.market as any)?.status || "").toUpperCase();
+        return status === "OPEN" || status === "SUSPENDED";
+      })
+      .map((x) => {
+        const runners = (x.market?.runners || []).slice(0, 4); // always show up to 4
+        return { ...x, market: { ...x.market, runners } };
+      });
+  }, [playerMarkets]);
+
+  const renderInningPlayerCard = (item: { inning: number; type: "batter" | "bowler"; market: any }) => {
+    const runners = (item.market?.runners || []).slice(0, 4);
+    const statusText = String((item.market as any)?.market_status || (item.market as any)?.status || "").toUpperCase();
+    const disabled = statusText !== "OPEN" || isFinishedMatch;
+    const label = `Innings ${item.inning} · ${item.type === "batter" ? "Top Batter" : "Top Bowler"}`;
+
+    const displayName = (r: any) => {
+      const meta = r?.metadata || {};
+      return (
+        r?.name ||
+        r?.runner_name ||
+        meta.player_name ||
+        meta.player ||
+        meta.name ||
+        meta.short_name ||
+        r?.id ||
+        "Player"
+      );
+    };
+
+    return (
+      <Card key={`${item.inning}-${item.type}`} className={cn("border border-[#E5E7EB] bg-white", softShadow)}>
+        <CardContent className="p-3 sm:p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-[#0F172A]">{label}</p>
+              <p className="text-[11px] text-[#6C757D]">Pick 1 of 4 players</p>
+            </div>
+            <span className="px-2 py-0.5 rounded-full border border-[#E5E7EB] text-[11px] text-[#0B1B31]">{statusText}</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+            {runners.map((r: any) => {
+              const rawOdds = Number(r.backOdds ?? r.back_odds);
+              const odds = Number.isFinite(rawOdds) && rawOdds > 0 ? rawOdds.toFixed(2) : "—";
+              const name = displayName(r);
+              return (
+                <button
+                  key={r.id}
+                  disabled={disabled}
+                  onClick={() => onPickRunner(r, item.market, "BACK")}
+                  className={cn(
+                    "rounded-xl border border-[#E5E7EB] bg-[#F6F8FB] p-3 text-left transition hover:shadow-sm",
+                    disabled && "opacity-60 cursor-not-allowed"
+                  )}
+                >
+                  <p className="text-[13px] font-semibold text-[#0F172A] truncate">{name}</p>
+                  <p className="text-[11px] text-[#6C757D]">{r.metadata?.team || "Player"}</p>
+                  <p className="text-[12px] text-[#0F172A] mt-1">Odds {odds}</p>
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   const onPickRunner = (runner: any, market: any, type: "BACK" | "LAY" = "BACK") => {
     if (!match) return;
@@ -1815,7 +2106,21 @@ export default function MatchDetail() {
         currency: user.currency,
       });
     } catch (err: any) {
-      toast({ title: "Bet failed", description: err?.message || "Unable to place bet", variant: "destructive" });
+      const rawMsg: string =
+        err?.message ||
+        err?.error?.message ||
+        err?.error_description ||
+        err?.data?.message ||
+        "";
+
+      const friendly =
+        /time|expired|closed/i.test(rawMsg)
+          ? "Betting time expired for this market."
+          : /balance|funds|insufficient/i.test(rawMsg)
+          ? "Insufficient balance."
+          : rawMsg || "Unable to place bet.";
+
+      toast({ title: "Bet failed", description: friendly, variant: "destructive" });
     } finally {
       setPlacingQuick(false);
     }
@@ -1890,60 +2195,77 @@ export default function MatchDetail() {
     </>
   );
 
-  // ✅ make batsman score more visible (higher contrast + bolder numbers)
- const playerBar = (
-  <div className="border-t border-[#E5E0D6] pt-1.5 mt-1.5">
-    <div className="flex items-start justify-between gap-3">
-      {/* Left: batsmen stacked */}
-      <div className="flex-[2] min-w-0">
-        <div className="flex flex-col gap-1">
-          {/* Striker */}
-          <div className="flex items-center gap-2 min-w-0">
-            <p
-              className={cn(
-                "text-[12px] truncate min-w-0 flex items-center gap-1",
-                dismissedSet.has(displayStriker.name) ? "text-[#9CA3AF]" : "text-[#111827]"
-              )}
-            >
-              <span className="text-[#27AE60]">●</span>
-              <span className="truncate">{displayStriker.name || lastKnownBatsRef.current.striker}</span>
-            </p>
-            <span className="shrink-0 font-mono tabular-nums font-semibold text-[#111827] text-[12px]">
-              {strikerRuns}/{strikerBalls}
-            </span>
-          </div>
+  const battingOnLeft =
+    battingTeamResolved && match
+      ? strictTeamEquals(battingTeamResolved, match.homeTeam)
+        ? true
+        : strictTeamEquals(battingTeamResolved, match.awayTeam)
+        ? false
+        : true
+      : true;
 
-          {/* Non-striker */}
-          <div className="flex items-center gap-2 min-w-0">
-            <p
-              className={cn(
-                "text-[12px] truncate min-w-0 flex items-center gap-1",
-                dismissedSet.has(displayNonStriker.name) ? "text-[#9CA3AF]" : "text-[#111827]"
-              )}
-            >
-              <span className="text-[#B0B7C3]">●</span>
-              <span className="truncate">{displayNonStriker.name || lastKnownBatsRef.current.non}</span>
-            </p>
-            <span className="shrink-0 font-mono tabular-nums font-semibold text-[#111827] text-[12px]">
-              {nonStrikerRuns}/{nonStrikerBalls}
-            </span>
-          </div>
+  const renderBattersColumn = (alignRight = false) => (
+    <div className={cn("flex-[2] min-w-0", alignRight && "text-right")}> 
+      <div className={cn("flex flex-col gap-1", alignRight && "items-end")}>
+        <div className={cn("flex items-center gap-2 min-w-0", alignRight && "justify-end")}> 
+          <p
+            className={cn(
+              "text-[12px] truncate min-w-0 flex items-center gap-1",
+              dismissedSet.has(displayStriker.name) ? "text-[#9CA3AF]" : "text-[#111827]"
+            )}
+          >
+            <span className="text-[#27AE60]">●</span>
+            <span className="truncate">{displayStriker.name || lastKnownBatsRef.current.striker}</span>
+          </p>
+          <span className={cn("shrink-0 font-mono tabular-nums font-semibold text-[#111827] text-[12px]", alignRight && "text-right")}>
+            {strikerRuns}/{strikerBalls}
+          </span>
+        </div>
+
+        <div className={cn("flex items-center gap-2 min-w-0", alignRight && "justify-end")}> 
+          <p
+            className={cn(
+              "text-[12px] truncate min-w-0 flex items-center gap-1",
+              dismissedSet.has(displayNonStriker.name) ? "text-[#9CA3AF]" : "text-[#111827]"
+            )}
+          >
+            <span className="text-[#B0B7C3]">●</span>
+            <span className="truncate">{displayNonStriker.name || lastKnownBatsRef.current.non}</span>
+          </p>
+          <span className={cn("shrink-0 font-mono tabular-nums font-semibold text-[#111827] text-[12px]", alignRight && "text-right")}>
+            {nonStrikerRuns}/{nonStrikerBalls}
+          </span>
         </div>
       </div>
+    </div>
+  );
 
-      {/* Right: bowler */}
-      <div className="flex-1 min-w-0 text-right">
-        <p className="text-[12px] text-[#111827] truncate">
-          Bowling: {displayBowler.name}
-        </p>
-        <p className="text-[11px] text-[#6B7280]">{displayBowler.fig}</p>
-        <p className="text-[11px] text-[#6B7280]">
-          Economy {displayBowler.econ || "—"}
-        </p>
+  const renderBowlerColumn = (alignLeft = false) => (
+    <div className={cn("flex-1 min-w-0", alignLeft ? "text-left" : "text-right")}> 
+      <p className="text-[12px] text-[#111827] truncate">Bowling: {displayBowler.name}</p>
+      <p className="text-[11px] text-[#6B7280]">{displayBowler.fig}</p>
+      <p className="text-[11px] text-[#6B7280]">Economy {displayBowler.econ || "—"}</p>
+    </div>
+  );
+
+  // ✅ make batsman score more visible (higher contrast + bolder numbers)
+  const playerBar = (
+    <div className="border-t border-[#E5E0D6] pt-1.5 mt-1.5">
+      <div className="flex items-start justify-between gap-3">
+        {battingOnLeft ? (
+          <>
+            {renderBattersColumn(false)}
+            {renderBowlerColumn(false)}
+          </>
+        ) : (
+          <>
+            {renderBowlerColumn(true)}
+            {renderBattersColumn(true)}
+          </>
+        )}
       </div>
     </div>
-  </div>
-);
+  );
 
   const renderRunnerRow = (r: any, market: any, bettingDisabled: boolean) => {
     const back = Number(r.backOdds ?? r.back_odds ?? 0);
@@ -2032,12 +2354,19 @@ export default function MatchDetail() {
     const rawStatus =
       (matchWinnerMarket as any)?.status || (matchWinnerMarket as any)?.market_status || "—";
     const statusText = String(rawStatus).toUpperCase();
+    const isSuspended = statusText === "SUSPENDED";
 
     // 🔒 Betting disabled if match completed, or market is not OPEN
     const bettingDisabled = isFinishedMatch || statusText !== "OPEN";
 
     return (
-      <Card className={cn("border border-[#94A3B8] bg-white shadow-xl", softShadow)}>
+      <Card
+        className={cn(
+          "border border-[#94A3B8] bg-white shadow-xl",
+          softShadow,
+          isSuspended && "opacity-70 animate-pulse"
+        )}
+      >
         <CardContent className="p-4 space-y-3">
           <div className="flex justify-end">
             <span className="px-2 py-0.5 rounded-full border border-[#94A3B8] text-[11px] text-[#0B1B31] font-semibold">
@@ -2055,7 +2384,7 @@ export default function MatchDetail() {
 
           <div className="grid gap-2">
             {(matchWinnerMarket.runners || []).map((r: any) =>
-              renderRunnerRow(r, matchWinnerMarket, bettingDisabled),
+              renderRunnerRow(r, matchWinnerMarket, bettingDisabled || isSuspended),
             )}
           </div>
         </CardContent>
@@ -2217,22 +2546,57 @@ export default function MatchDetail() {
     </Card>
   );
 
-  const renderSessionCard = (m: InstanceMarket) => {
-    const statusText = String((m as any).market_status || (m as any).status || "").toUpperCase();
-    const suspended = statusText === "SUSPENDED";
-    const settled = statusText === "SETTLED";
-    const disabled = suspended || settled;
+  const findInstanceForSession = (targetOver: number | null | undefined) => {
+    if (!targetOver) return null;
+    const target = Number(targetOver);
+    return (instanceMarkets as InstanceMarket[]).find((im) => {
+      const t = Number(
+        (im as any).metadata?.target_over ??
+          (im as any).target_over ??
+          ((im as any).ro_over_number != null ? Number((im as any).ro_over_number) + 1 : NaN)
+      );
+      const inningMatch =
+        toNum((im as any).ro_inning_number ?? (im as any).inning_number ?? 1, 1) === activeInning;
+      return inningMatch && Number.isFinite(t) && t === target;
+    });
+  };
+
+  const renderSessionCard = (m: SessionMarket) => {
+    const sessionStatus = String(m.status || "OPEN").toUpperCase();
+    const settled = sessionStatus === "SETTLED";
+    if (settled) return null;
+    const lineNum = Number(m.projected_line);
+    const hasLine = Number.isFinite(lineNum) && lineNum > 0;
+    const displayTitle = `After ${m.target_over} overs, can they score ${hasLine ? lineNum.toFixed(1) : "—"} runs?`;
+    const overLabel = `Over ${m.target_over}`;
+
+    const linkedInstance = findInstanceForSession(m.target_over);
+    const outcomes = (linkedInstance?.outcomes || []) as any[];
+    const yes = outcomes.find((o) => String(o.name || o.outcome_name || "").toLowerCase() === "yes");
+    const no = outcomes.find((o) => String(o.name || o.outcome_name || "").toLowerCase() === "no");
+    const oddsYes = yes ? Number(yes.odds ?? yes.back_odds ?? 0).toFixed(2) : "—";
+    const oddsNo = no ? Number(no.odds ?? no.back_odds ?? 0).toFixed(2) : "—";
+    const instanceStatus = String(
+      (linkedInstance as any)?.market_status || (linkedInstance as any)?.status || "CLOSED"
+    ).toUpperCase();
+
+    // Hide if the linked tradable market isn't open (prevents “betting time expired”)
+    if (!linkedInstance || instanceStatus !== "OPEN") return null;
+
+    const suspended = instanceStatus === "SUSPENDED";
+    const bettingDisabled = suspended || !linkedInstance;
+    const displayStatus = instanceStatus || sessionStatus;
 
     return (
       <Card key={m.id} className={cn("border border-[#E5E7EB] bg-[#F6F8FB]", softShadow)}>
         <CardContent className="p-3 sm:p-4 space-y-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[14px] font-semibold text-[#111827] truncate">
-                {(m as any).market_title || (m as any).name || "Session market"}
-              </p>
-              <p className="text-[11px] text-[#6C757D]">
-                {(m as any).metadata?.description || (m as any).score_note || `Line: ${(m as any).line ?? (m as any).target ?? "—"}`}
+              <p className="text-[14px] font-semibold text-[#111827] truncate">{displayTitle}</p>
+              <p className="text-[11px] text-[#6C757D] flex flex-wrap gap-1 items-center">
+                {overLabel && <span>{overLabel}</span>}
+                {hasLine && <span>· Target: {lineNum.toFixed(1)} runs</span>}
+                {!hasLine && <span>Target unavailable</span>}
               </p>
             </div>
             <span
@@ -2243,29 +2607,39 @@ export default function MatchDetail() {
                 suspended ? ui.suspendedText : ui.textMuted
               )}
             >
-              {settled ? "SETTLED" : suspended ? "SUSPENDED" : statusText || "OPEN"}
+              {suspended ? "SUSPENDED" : displayStatus || "OPEN"}
             </span>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            {(m.outcomes || []).map((o) => {
-              const odds = Number(o.odds ?? 0).toFixed(2);
-              return (
-                <button
-                  key={o.id}
-                  disabled={disabled}
-                  onClick={() => onPickOutcome(m, o)}
-                  className={cn(
-                    "rounded-xl border border-[#E5E7EB] bg-[#F6F8FB] px-3 py-2 text-left transition hover:shadow-sm",
-                    selectedOutcome?.id === o.id && selectedMarket?.id === m.id && "bg-[#E8F6F1] ring-1 ring-[#1ABC9C]",
-                    disabled && "opacity-60 cursor-not-allowed"
-                  )}
-                >
-                  <p className="text-[11px] text-[#6C757D] truncate">{o.name}</p>
-                  <p className="text-[15px] font-semibold text-[#111827]">{odds}</p>
-                </button>
-              );
-            })}
+            <button
+              disabled={bettingDisabled || !yes}
+              onClick={() => {
+                if (!linkedInstance || !yes || bettingDisabled) return;
+                onPickOutcome(linkedInstance as any, yes as any);
+              }}
+              className={cn(
+                "rounded-xl border border-[#E5E7EB] bg-[#E8F6F1] px-3 py-2 text-left transition hover:shadow-sm",
+                (bettingDisabled || !yes) && "opacity-60 cursor-not-allowed"
+              )}
+            >
+              <p className="text-[11px] text-[#0B5345]">Yes</p>
+              <p className="text-[15px] font-semibold text-[#0B5345]">{oddsYes}</p>
+            </button>
+            <button
+              disabled={bettingDisabled || !no}
+              onClick={() => {
+                if (!linkedInstance || !no || bettingDisabled) return;
+                onPickOutcome(linkedInstance as any, no as any);
+              }}
+              className={cn(
+                "rounded-xl border border-[#E5E7EB] bg-[#FDE8EB] px-3 py-2 text-left transition hover:shadow-sm",
+                (bettingDisabled || !no) && "opacity-60 cursor-not-allowed"
+              )}
+            >
+              <p className="text-[11px] text-[#9B1C1C]">No</p>
+              <p className="text-[15px] font-semibold text-[#9B1C1C]">{oddsNo}</p>
+            </button>
           </div>
         </CardContent>
       </Card>
@@ -2281,12 +2655,11 @@ export default function MatchDetail() {
       );
     }
 
-    const groups: Record<string, InstanceMarket[]> = { CURRENT: [], UPCOMING: [], COMPLETED: [] };
+    const groups: Record<string, SessionMarket[]> = { CURRENT: [], UPCOMING: [], COMPLETED: [] };
     sessionMarkets.forEach((m) => {
-      const status = String((m as any).market_status || (m as any).status || "").toUpperCase();
+      const status = String((m as any).status || "").toUpperCase();
       if (status === "SETTLED") groups.COMPLETED.push(m);
-      else if (status === "OPEN") groups.CURRENT.push(m);
-      else if (status === "SUSPENDED") groups.CURRENT.push(m);
+      else if (status === "OPEN" || status === "CLOSED" || status === "SUSPENDED") groups.CURRENT.push(m);
       else groups.UPCOMING.push(m);
     });
 
@@ -2302,7 +2675,11 @@ export default function MatchDetail() {
           groups[g.key].length ? (
             <div key={g.key} className="space-y-1.5">
               <p className="text-[11px] text-[#6C757D] tracking-[0.05em]">{g.label}</p>
-              <div className="space-y-1.5">{groups[g.key].map((m) => renderSessionCard(m))}</div>
+              <div className="space-y-1.5">
+                {groups[g.key]
+                  .slice(0, 2) // show only two cards
+                  .map((m) => renderSessionCard(m))}
+              </div>
             </div>
           ) : null
         )}
@@ -2311,9 +2688,10 @@ export default function MatchDetail() {
   };
 
   const renderCommentaryTab = () => {
+    // Only show ball events that carry commentary text; ignore non-ball/status rows
     const items = commentary
-      .filter((c) => (c.commentary || "").trim().length > 0)
       .slice()
+      .filter((c) => (c.commentary || "").trim().length > 0)
       .sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0));
 
     const renderCommentaryText = (raw: string) => {
@@ -2340,7 +2718,9 @@ export default function MatchDetail() {
             <div className="divide-y divide-[#E5E7EB] pb-6">
               {items.map((c, idx) => {
                 const overLabel = `${c.over}.${c.ball}`;
+                const isStatus = false; // filter already removed non-ball rows
                 const outcome = outcomeFromBallEvent(c) || "·";
+                const bodyText = (c.commentary || "").trim();
 
                 return (
                   <div
@@ -2350,7 +2730,7 @@ export default function MatchDetail() {
                     <div className="flex items-start gap-3.5">
                       <div
                         className={cn(
-                          "h-11 w-11 rounded-full flex items-center justify-center text-[14px] font-semibold",
+                          "h-11 w-11 rounded-full flex items-center justify-center text-[11px] font-semibold",
                           chipStyle(outcome)
                         )}
                       >
@@ -2362,9 +2742,11 @@ export default function MatchDetail() {
                           <span>·</span>
                           <span>{new Date(c.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                         </div>
-                        <p className="text-[14px] leading-[1.55] text-[#0F172A] whitespace-pre-line">
-                          {renderCommentaryText(c.commentary || "")}
-                        </p>
+                        {bodyText && (
+                          <p className="text-[14px] leading-[1.55] text-[#0F172A] whitespace-pre-line">
+                            {renderCommentaryText(bodyText)}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2417,6 +2799,15 @@ export default function MatchDetail() {
                 </div>
               </div>
 
+              {resultText && (
+                <div className="flex justify-center">
+                  <div className="mt-1 inline-flex items-center gap-2 px-3 py-2 rounded-full bg-[#E8F6F1] text-[#0B5345] text-[12px] font-semibold border border-[#1ABC9C33]">
+                    <span className="h-2 w-2 rounded-full bg-[#1ABC9C]" />
+                    {resultText}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between text-[11px] text-[#6B7280]">
                 <span className="hidden sm:inline">{matchTitle}</span>
                 {!isLive && <span className="ml-auto">{matchShortDate}</span>}
@@ -2441,20 +2832,11 @@ export default function MatchDetail() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 text-[11px] text-[#6B7280]">
-                {/* Left spacer (keeps center truly centered even when right text exists) */}
-                <div className="shrink-0 w-[52px]" />
-
-                {/* Center already handled above; keep this row for target/rrr only */}
-                <div className="flex-1 min-w-0 flex justify-center" />
-
-                {/* Right: target/rrr */}
-                <div className="shrink-0 text-right font-mono tabular-nums">
-                  {target ? `Target ${target}` : ""}
-                  {target && rrr ? " · " : ""}
-                  {rrr ? `RRR ${rrr}` : ""}
+              {chaseText && (
+                <div className="flex justify-center text-[11px] text-[#4B5563]">
+                  <span className="text-center">{chaseText}</span>
                 </div>
-              </div>
+              )}
 
               {isLive && playerBar}
             </CardContent>
@@ -2468,16 +2850,16 @@ export default function MatchDetail() {
 
           {/* Tabs */}
           <div className="mt-0.5">
-            <div className="grid grid-cols-4 w-full rounded-full border border-[#E5E7EB] bg-[#FDFBF6] p-0.5 text-[13px] overflow-hidden">
-              {[
-                { key: "winner" as const, label: "Winner" },
-                { key: "live" as const, label: "Live Play" },
-                { key: "session" as const, label: "Session" },
-                { key: "commentary" as const, label: "Commentary" },
-              ].map((t) => {
-                const isActiveTab = activeTab === t.key;
-                return (
-                  <button
+          <div className="grid grid-cols-4 w-full rounded-full border border-[#E5E7EB] bg-[#FDFBF6] p-0.5 text-[13px] overflow-hidden">
+            {[
+              { key: "winner" as const, label: "Winner" },
+              { key: "live" as const, label: "Live Play" },
+              { key: "session" as const, label: "Session" },
+              { key: "commentary" as const, label: "Commentary" },
+            ].map((t) => {
+              const isActiveTab = activeTab === t.key;
+              return (
+                <button
                     key={t.key}
                     className={cn(
                       "w-full h-10 px-3 sm:px-4 rounded-full transition-colors text-center flex items-center justify-center",
@@ -2515,7 +2897,17 @@ export default function MatchDetail() {
             </div>
           )}
 
-          {activeTab === "session" && <div className="space-y-2.5">{renderSessionMarkets()}</div>}
+          {activeTab === "session" && (
+            <div className="space-y-2.5">
+              {renderSessionMarkets()}
+              {inningPlayerMarkets.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[12px] text-[#6C757D] font-semibold">Top player specials</p>
+                  {inningPlayerMarkets.map((m) => renderInningPlayerCard(m))}
+                </div>
+              )}
+            </div>
+          )}
           {activeTab === "commentary" && <div className="space-y-2.5">{renderCommentaryTab()}</div>}
         </div>
       </div>

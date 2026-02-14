@@ -60,6 +60,11 @@ export interface Runner {
   backOdds: number;
   layOdds: number;
   volume: number;
+  // Mapping helpers for correct team alignment
+  teamKey?: string | null;
+  isHome?: boolean;
+  isAway?: boolean;
+  metadata?: Record<string, any> | null;
 }
 
 export interface Bet {

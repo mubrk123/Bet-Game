@@ -67,14 +67,30 @@ async function placeInstanceBet(
   // Load market
   const { data: market, error: marketErr } = await supabase
     .from("instance_markets")
-    .select("id, match_id, market_status, close_time, ro_over_number, ro_ball_number, ro_inning_number")
+    .select("id, match_id, market_status, close_time, ro_over_number, ro_ball_number, ro_inning_number, instance_type, metadata")
     .eq("id", payload.marketId)
     .single();
   if (marketErr || !market) throw new ApiError("Market not found", 404);
   if (market.market_status !== "OPEN") throw new ApiError("Market closed");
-  if (market.close_time && new Date(market.close_time) <= now) {
+
+  // For OVER_PROJECTION (session) markets, trust market_status; ignore stale close_time.
+  const isProjection = String(market.instance_type || "").toUpperCase() === "OVER_PROJECTION";
+  if (!isProjection && market.close_time && new Date(market.close_time) <= now) {
     throw new ApiError("Betting time expired");
   }
+
+  const targetOver =
+    isProjection && market.metadata
+      ? Number(
+          (market.metadata as any).target_over ??
+            (market.metadata as any).targetOver ??
+            (market.ro_over_number != null ? Number(market.ro_over_number) + 1 : NaN),
+        )
+      : null;
+  const sessionLine =
+    isProjection && market.metadata
+      ? Number((market.metadata as any).line ?? NaN)
+      : null;
 
   // Load outcome
   const { data: outcome, error: outcomeErr } = await supabase
@@ -132,6 +148,10 @@ async function placeInstanceBet(
       ro_inning_number: market.ro_inning_number,
       ro_over_number: market.ro_over_number,
       ro_ball_number: market.ro_ball_number,
+      session_target_over:
+        isProjection && Number.isFinite(targetOver) ? Number(targetOver) : null,
+      session_line:
+        isProjection && Number.isFinite(sessionLine) ? Number(sessionLine) : null,
       bet_status: "OPEN",
       ip_address: getClientIp(req),
       user_agent: req.headers.get("user-agent"),
