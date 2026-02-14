@@ -778,13 +778,6 @@ export default function Dashboard() {
                         : null) ??
                       parseTarget(match.scoreDetails);
 
-                    const targetLine =
-                      isLive &&
-                      (match.currentInning ?? 1) >= 2 &&
-                      targetRuns != null &&
-                      targetRuns > 0
-                        ? targetRuns
-                        : null;
                     const requiredRuns =
                       isLive &&
                       (match.currentInning ?? 1) >= 2 &&

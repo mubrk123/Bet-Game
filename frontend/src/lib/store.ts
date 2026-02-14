@@ -42,6 +42,8 @@ export interface Match {
   toss_recorded_at?: string | null;
   updatedAt?: string;
   venue?: string | null;
+  requiredRuns?: number | null;
+  requiredBalls?: number | null;
   markets: Market[];
 }
 
@@ -51,6 +53,7 @@ export interface Market {
   name: string;
   status: "OPEN" | "SUSPENDED" | "CLOSED";
   runners: Runner[];
+  metadata?: Record<string, any> | null;
 }
 
 export interface Runner {

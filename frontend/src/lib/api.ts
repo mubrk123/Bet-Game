@@ -294,7 +294,7 @@ function mapToUiMarket(market: any): Market {
     matchId: market.match_id,
     name: market.market_name,
     status,
-    metadata: market.metadata || null,
+    metadata: (market as any).metadata || null,
     runners,
   };
 }
@@ -752,18 +752,19 @@ class ApiClient {
     ),
   );
 
-  let instanceMeta: Record<
-    string,
-    {
-      inning?: number;
-      over?: number;
-      ball?: number;
-      label?: string;
-      target_over?: number;
-      line?: number;
-      instance_type?: string;
-    }
-  > = {};
+let instanceMeta: Record<
+  string,
+  {
+    inning?: number;
+    over?: number;
+    ball?: number;
+    label?: string;
+    target_over?: number;
+    line?: number;
+    instance_type?: string;
+    match_id?: string;
+  }
+> = {};
 
   let sessionLineLookup: Record<string, number> = {};
 
@@ -909,7 +910,7 @@ class ApiClient {
       market_id: row.market_id,
       runner_name: row.runner_name,
       instance_type: inst?.instance_type,
-      target_over: inst?.target_over,
+      target_over: sessionTarget,
       line: sessionLine,
 
       odds: Number(row.odds ?? 0),

@@ -1500,13 +1500,6 @@ export default function MatchDetail() {
   const authoritativeBall0to5ForText =
     inningScoreFromDb?.ball0to5 ?? (lastBall ? Math.max(0, toNum(lastBall.ball, 1) - 1) : 0);
 
-  // Decimal over for filtering projection/session markets (e.g., 6.3 overs => 6 + 3/6)
-  const currentOverDecimal = useMemo(() => {
-    const over = toNum(authoritativeOverForText, 0);
-    const ball = toNum(authoritativeBall0to5ForText, 0);
-    return over + ball / 6;
-  }, [authoritativeOverForText, authoritativeBall0to5ForText]);
-
   const overFromDb = inningScoreFromDb ? formatOversCompact(authoritativeOverForText, authoritativeBall0to5ForText) : null;
 
   const overText =
@@ -1523,8 +1516,8 @@ export default function MatchDetail() {
 
   const required = parseRequired(displayDetails);
   const requiredFromMatch = useMemo(() => {
-    const runs = toNum((match as any)?.ro_required_runs ?? (match as any)?.required_runs, null);
-    const balls = toNum((match as any)?.ro_required_balls ?? (match as any)?.required_balls, null);
+    const runs = toNum((match as any)?.ro_required_runs ?? (match as any)?.required_runs, undefined);
+    const balls = toNum((match as any)?.ro_required_balls ?? (match as any)?.required_balls, undefined);
     if (Number.isFinite(runs) && Number.isFinite(balls)) return { runs, balls };
     return null;
   }, [match]);
@@ -1619,7 +1612,6 @@ export default function MatchDetail() {
       ? chaseInfo
       : null;
 
-  const rrr = validChase ? ((validChase.runs / validChase.balls) * 6).toFixed(2) : null;
   const chaseText = validChase && chaseLabel ? `${chaseLabel} needs ${validChase.runs} runs in ${validChase.balls} balls` : null;
   const resultText = useMemo(() => {
     if (!isFinishedMatch) return null;
@@ -2583,8 +2575,8 @@ export default function MatchDetail() {
     // Hide if the linked tradable market isn't open (prevents “betting time expired”)
     if (!linkedInstance || instanceStatus !== "OPEN") return null;
 
-    const suspended = instanceStatus === "SUSPENDED";
-    const bettingDisabled = suspended || !linkedInstance;
+    const suspended = false;
+    const bettingDisabled = false;
     const displayStatus = instanceStatus || sessionStatus;
 
     return (
@@ -2718,7 +2710,6 @@ export default function MatchDetail() {
             <div className="divide-y divide-[#E5E7EB] pb-6">
               {items.map((c, idx) => {
                 const overLabel = `${c.over}.${c.ball}`;
-                const isStatus = false; // filter already removed non-ball rows
                 const outcome = outcomeFromBallEvent(c) || "·";
                 const bodyText = (c.commentary || "").trim();
 
